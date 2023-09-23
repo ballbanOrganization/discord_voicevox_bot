@@ -38,7 +38,8 @@ async def on_message(message: discord.Message):
 
     if message.content:
         # Check is link
-        if re.search(r"(http)?s?(://)?[\w\d-]*\.[\w\d]{2,3}", message.content):
+        pattern = r"(http(s):\/\/.)?[-a-zA-Z0-9@:%._\+~#=]{1,256}\.[a-z]{2,6}\b([-a-zA-Z0-9@:%_\+.~#?&//=]*)"
+        if re.search(pattern, message.content):
             message.content = 'リンク省略'
 
         # Replace 'w' if 'w' is repeated more than 4 times in row
@@ -116,17 +117,15 @@ async def on_voice_state_update(member: discord.Member, before: discord.VoiceSta
     # get current voice client
     voice_client = discord.utils.get(client.voice_clients, guild=member.guild)
 
-    # ignore state change in different channel
-    if not voice_client or not before or not after \
-            or voice_client.channel != before.channel or voice_client.channel != after.channel:
-        return
-
-    # when user left channel
-    if before.channel and not after.channel:
-        await read_text(f'{member.display_name}さんが退室しました。', voice_client, member.id)
-    # when user join channel
-    elif not before.channel and after.channel:
-        await read_text(f'{member.display_name}さんが入室しました。', voice_client, member.id)
+    # detect state change in same channel
+    if voice_client \
+            and (voice_client.channel == before.channel or voice_client.channel == after.channel):
+        # when user left channel
+        if before.channel and not after.channel:
+            await read_text(f'{member.display_name}さんが退室しました。', voice_client, member.id)
+        # when user join channel
+        elif not before.channel and after.channel:
+            await read_text(f'{member.display_name}さんが入室しました。', voice_client, member.id)
 
 
 @tree.command(name='join', description='ユーザーが入っているボイスチャンネルにbotが参加します。')
