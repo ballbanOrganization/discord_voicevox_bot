@@ -138,16 +138,22 @@ async def join(inter: discord.Interaction):
 
     # get current voice_client
     voice_client = discord.utils.get(client.voice_clients, guild=inter.user.guild)
-    if voice_client and voice_client.channel != voice_channel:
-        voice_client = await voice_channel.move()
+    # if bot is in voice channel already
+    if voice_client:
+        if voice_client.channel.id != voice_channel.id:
+            await voice_client.move_to(voice_channel)
+            await asyncio.sleep(0.5)
+            text = 'チャンネル移動なのだ！'
+            await inter.response.send_message(text)
+            await read_text(text, voice_client, client.user.id)
+        else:
+            await inter.response.send_message('もうチャンネルに入っているのだ！')
     else:
+        # join the voice channel that user in
         voice_client = await voice_channel.connect()
-
-    # set current channel
-    await inter.response.send_message('ウィィィッス！どうもー、しゃむだもんでーす')
-
-    # get current voice client
-    await read_text('ウィィィッス！どうもー、しゃむだもんでーす', voice_client, client.user.id)
+        text = 'ウィィィッス！どうもー、しゃむだもんでーす'
+        await inter.response.send_message(text)
+        await read_text(text, voice_client, client.user.id)
 
 
 @tree.command(name='disconnect', description='接続を切断します。')
