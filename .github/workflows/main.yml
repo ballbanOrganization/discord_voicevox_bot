@@ -33,8 +33,5 @@ jobs:
         flake8 . --count --exit-zero --max-complexity=10 --max-line-length=127 --statistics
         
     - name: Run application
-      env:
-        discord_token: ${{ secrets.discord_token }}
       run: |
-        . (Join-Path $env:USERPROFILE "PycharmProjects/discord_voicevox_bot/venv/Scripts/activate.ps1")
-        pythonw main.py
+        nssm restart discord_voicevox_bot
