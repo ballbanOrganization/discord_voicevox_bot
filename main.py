@@ -2,9 +2,10 @@ import asyncio
 import os
 from typing import List
 import discord
+from discord import app_commands
+from discord.ext import tasks
 import voicevox as v
 import user as u
-from discord import app_commands
 import hashlib
 import re
 from collections import defaultdict
@@ -201,6 +202,19 @@ async def set_voice(inter: discord.Interaction, speaker_name: str, style_id: int
     user.sound = style_id
     user_data.save_user(user)
     await inter.response.send_message(f'音声を{name}に設定しました。')
+
+
+@tasks.loop(seconds=60)
+async def background_task():
+    """
+    Background task run in every 5 minutes
+    """
+    await client.wait_until_ready()
+    while not client.is_closed():
+        # Leave voice channel if no member in voice channel
+        for voice_client in client.voice_clients:
+            if len(voice_client.channel.voice_states.keys()) < 2:
+                await voice_client.disconnect(force=True)
 
 
 client.run(os.environ['discord_token'])
