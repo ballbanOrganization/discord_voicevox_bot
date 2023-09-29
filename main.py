@@ -142,7 +142,8 @@ async def join(inter: discord.Interaction):
     if voice_client:
         if voice_client.channel.id != voice_channel.id:
             await voice_client.move_to(voice_channel)
-            await asyncio.sleep(0.5)
+            while voice_client.is_connected():
+                await asyncio.sleep(0.1)
             text = 'チャンネル移動なのだ！'
             await inter.response.send_message(text)
             await read_text(text, voice_client, client.user.id)
