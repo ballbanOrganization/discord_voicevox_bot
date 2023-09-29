@@ -21,6 +21,7 @@ voice_vox = v.VoiceVox()
 @client.event
 async def on_ready():
     print(f'We have logged in as {client.user}')
+    background_task.start()
     await tree.sync()
 
 
@@ -207,14 +208,13 @@ async def set_voice(inter: discord.Interaction, speaker_name: str, style_id: int
 @tasks.loop(seconds=60)
 async def background_task():
     """
-    Background task run in every 5 minutes
+    Background task run in every 1 minutes
     """
     await client.wait_until_ready()
-    while not client.is_closed():
-        # Leave voice channel if no member in voice channel
-        for voice_client in client.voice_clients:
-            if len(voice_client.channel.voice_states.keys()) < 2:
-                await voice_client.disconnect(force=True)
+    # Leave voice channel if no member in voice channel
+    for voice_client in client.voice_clients:
+        if len(voice_client.channel.voice_states.keys()) < 2:
+            await voice_client.disconnect(force=True)
 
 
 client.run(os.environ['discord_token'])
