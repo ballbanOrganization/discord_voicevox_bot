@@ -16,7 +16,9 @@ jobs:
     environment: production
     steps:
     - uses: actions/checkout@v3
-      
+      with:
+        clean: false
+        
     - name: Install dependencies
       run: |
         . (Join-Path $env:USERPROFILE "PycharmProjects/discord_voicevox_bot/venv/Scripts/activate.ps1")
