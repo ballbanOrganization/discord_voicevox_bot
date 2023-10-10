@@ -137,6 +137,7 @@ async def join(inter: discord.Interaction):
     else:
         await inter.response.send_message('どのチャンネルに入ればいいのかわからないのだ！'
                                           'ボイスチャンネルに入ってから僕を呼ぶのだ！')
+        return
 
     # get current voice_client
     voice_client = discord.utils.get(client.voice_clients, guild=inter.user.guild)
