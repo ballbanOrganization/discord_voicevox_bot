@@ -10,6 +10,7 @@ import hashlib
 import re
 from collections import defaultdict
 
+os.environ["PYTHONIOENCODING"] = "utf-8"
 intents = discord.Intents.default()
 intents.message_content = True
 client = discord.Client(intents=intents)
