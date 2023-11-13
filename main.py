@@ -108,7 +108,7 @@ async def read_text(text: str, voice_client: discord.VoiceProtocol, user_id: int
     # Play audio
     audio_source = discord.FFmpegPCMAudio(source=file_path)
     voice_client.play(audio_source)
-    print(f'Speaker: {speaker_name}, Text: {text}')
+    print(f'Speaker: {speaker_name}, Text: {text.encode("utf-8", "ignore").decode("utf-8")}')
 
 
 @client.event
