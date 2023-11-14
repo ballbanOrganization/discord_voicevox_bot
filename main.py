@@ -40,6 +40,11 @@ async def on_message(message: discord.Message):
         return
 
     if message.content:
+        # return if message is startswith ng word, return
+        ng_words = 'm!', '/'
+        if message.content.startswith(ng_words):
+            return
+
         # Check is link
         pattern = r"(http(s):\/\/.)?[-a-zA-Z0-9@:%._\+~#=]{1,256}\.[a-z]{2,6}\b([-a-zA-Z0-9@:%_\+.~#?&//=]*)"
         if re.search(pattern, message.content):
