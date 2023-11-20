@@ -33,10 +33,11 @@ async def on_message(message: discord.Message):
         return
 
     # return if bot is not in voice channel
-    # or message is not from the voice chat bot located in
-    if not client.voice_clients \
+    # or message is not from the channel where chatbot located in
+    voice_client = discord.utils.get(client.voice_clients, guild=message.guild)
+    if not voice_client \
             or not message.guild.voice_client \
-            or message.guild.voice_client.channel != message.channel:
+            or voice_client.channel.id != message.channel.id:
         return
 
     if message.content:
@@ -49,6 +50,11 @@ async def on_message(message: discord.Message):
         pattern = r"(http(s):\/\/.)?[-a-zA-Z0-9@:%._\+~#=]{1,256}\.[a-z]{2,6}\b([-a-zA-Z0-9@:%_\+.~#?&//=]*)"
         if re.search(pattern, message.content):
             message.content = 'リンク省略'
+
+        # Check is IP
+        pattern = r'\d{1,3}.\d{1,3}.\d{1,3}.\d{1,3}'
+        if re.search(pattern, message.content):
+            message.content = 'IP省略'
 
         # Replace 'w' if 'w' is repeated more than 4 times in row
         message.content = re.sub(r'[wWｗＷ]{4,}', 'わらわら', message.content)
@@ -130,10 +136,18 @@ async def on_voice_state_update(member: discord.Member, before: discord.VoiceSta
             and (voice_client.channel == before.channel or voice_client.channel == after.channel):
         # when user left channel
         if before.channel and not after.channel:
-            await read_text(f'{member.display_name}さんが退室しました。', voice_client, member.id)
+            user = user_data.get_user(member.id)
+            if user.exit_audio:
+                await read_text(user.exit_audio, voice_client, member.id)
+            else:
+                await read_text(f'{member.display_name}さんが退室しました。', voice_client, member.id)
         # when user join channel
         elif not before.channel and after.channel:
-            await read_text(f'{member.display_name}さんが入室しました。', voice_client, member.id)
+            user = user_data.get_user(member.id)
+            if user.entry_audio:
+                await read_text(user.entry_audio, voice_client, member.id)
+            else:
+                await read_text(f'{member.display_name}さんが入室しました。', voice_client, member.id)
 
 
 @tree.command(name='join', description='ユーザーが入っているボイスチャンネルにbotが参加します。')
@@ -202,7 +216,7 @@ async def style_autocomplete(interaction: discord.Interaction, style: int) -> Li
 @app_commands.autocomplete(speaker_name=speaker_autocomplete, style_id=style_autocomplete)
 async def set_voice(inter: discord.Interaction, speaker_name: str, style_id: int = 0):
     if style_id == 0:
-        style_name, speaker_id = list(voice_vox.speaker_dict[speaker_name].items())[0]
+        style_name, style_id = list(voice_vox.speaker_dict[speaker_name].items())[0]
         name = style_name + speaker_name
     else:
         name = voice_vox.get_speaker_name(style_id)
@@ -210,6 +224,36 @@ async def set_voice(inter: discord.Interaction, speaker_name: str, style_id: int
     user.sound = style_id
     user_data.save_user(user)
     await inter.response.send_message(f'音声を{name}に設定しました。')
+
+
+@tree.command(name='set_entry_audio', description='入場時の読み上げ音声を指定する。パラメータなしでリセット。')
+@app_commands.describe(text="文字数は50文字以内。")
+async def set_entry_audio(inter: discord.Interaction, text: str = ""):
+    if len(text) > 50:
+        await inter.response.send_message(f'50文字以内に設定してください。')
+        return
+    user = user_data.get_user(inter.user.id)
+    user.entry_audio = text
+    user_data.save_user(user)
+    if text:
+        await inter.response.send_message(f'入場音声を{text}に設定しました。')
+    else:
+        await inter.response.send_message(f'入場音声をリセットしました。')
+
+
+@tree.command(name='set_exit_audio', description='退場時の読み上げ音声を指定する。パラメータなしでリセット。')
+@app_commands.describe(text="文字数は50文字以内。")
+async def set_exit_audio(inter: discord.Interaction, text: str = ""):
+    if len(text) > 50:
+        await inter.response.send_message(f'50文字以内に設定してください。')
+        return
+    user = user_data.get_user(inter.user.id)
+    user.exit_audio = text
+    user_data.save_user(user)
+    if text:
+        await inter.response.send_message(f'退場音声を{text}に設定しました。')
+    else:
+        await inter.response.send_message(f'退場音声をリセットしました。')
 
 
 @tasks.loop(seconds=60)
