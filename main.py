@@ -17,7 +17,7 @@ client = discord.Client(intents=intents)
 tree = app_commands.CommandTree(client)
 user_data = u.UserData()
 voice_vox = v.VoiceVox()
-text_channel = None
+TEXT_CHANNEL_ID = None
 
 
 @client.event
@@ -35,7 +35,7 @@ async def on_message(message: discord.Message):
 
     # get voice_client from the message
     voice_client = discord.utils.get(client.voice_clients, guild=message.guild)
-    global text_channel
+    global TEXT_CHANNEL_ID
     # return if bot is in voice channel
     # or the person who sent message is in voice channel
     # or message is not from the channel where chatbot located in
@@ -43,7 +43,7 @@ async def on_message(message: discord.Message):
         not voice_client
         or not message.guild.voice_client
         # or voice_client.channel.id != message.channel.id
-        or message.channel.id != text_channel
+        or message.channel.id != TEXT_CHANNEL_ID
     ):
         return
 
@@ -214,19 +214,18 @@ async def join(inter: discord.Interaction, text_channel_id: str = ""):
             while voice_client.is_connected():
                 await asyncio.sleep(0.1)
             text = "チャンネル移動なのだ！"
-            await inter.response.send_message(text)
-            await read_text(text, voice_client, client.user.id)
         else:
-            await inter.response.send_message("もうチャンネルに入っているのだ！")
+            text = "もうこのチャンネルに入っているのだ！"
     else:
         # join the voice channel that user in
         voice_client = await voice_channel.connect()
         text = "ウィィィッス！どうもー、しゃむだもんでーす"
-        await inter.response.send_message(text)
-        await read_text(text, voice_client, client.user.id)
+    await read_text(text, voice_client, client.user.id)
 
-    global text_channel
-    text_channel = int(text_channel_id) if text_channel_id else inter.channel.id
+    global TEXT_CHANNEL_ID
+    TEXT_CHANNEL_ID = int(text_channel_id) if text_channel_id else inter.channel.id
+    text += f"\n> 現在文字読みチャンネル: <#{TEXT_CHANNEL_ID}>"
+    await inter.response.send_message(text)
 
 
 @tree.command(name="disconnect", description="接続を切断します。")
