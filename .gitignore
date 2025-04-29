@@ -1,3 +1,6 @@
-/audio/
-/.idea/
-/__pycache__/
+__pycache__/
+.github/
+.idea/
+.venv/
+.vscode/
+audio/
