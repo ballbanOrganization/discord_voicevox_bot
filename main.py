@@ -10,14 +10,21 @@ import hashlib
 import re
 from collections import defaultdict
 
+# Log related settings
 os.environ["PYTHONIOENCODING"] = "utf-8"
+
+# Discord related setup
 intents = discord.Intents.default()
 intents.message_content = True
 client = discord.Client(intents=intents)
 tree = app_commands.CommandTree(client)
+
+# load user data and voicevox data
 user_data = u.UserData()
 voice_vox = v.VoiceVox()
-TEXT_CHANNEL_ID = None
+
+# Global variable
+YOMIAGE_TEXT_CHANNEL_ID = None
 
 
 @client.event
@@ -35,7 +42,7 @@ async def on_message(message: discord.Message):
 
     # get voice_client from the message
     voice_client = discord.utils.get(client.voice_clients, guild=message.guild)
-    global TEXT_CHANNEL_ID
+    global YOMIAGE_TEXT_CHANNEL_ID
     # return if bot is in voice channel
     # or the person who sent message is in voice channel
     # or message is not from the channel where chatbot located in
@@ -43,7 +50,7 @@ async def on_message(message: discord.Message):
         not voice_client
         or not message.guild.voice_client
         # or voice_client.channel.id != message.channel.id
-        or message.channel.id != TEXT_CHANNEL_ID
+        or message.channel.id != YOMIAGE_TEXT_CHANNEL_ID
     ):
         return
 
@@ -148,54 +155,52 @@ async def on_voice_state_update(
     if voice_client and (
         voice_client.channel == before.channel or voice_client.channel == after.channel
     ):
+        user = user_data.get_user(member.id)
+
         # when user left channel
         if before.channel and not after.channel:
-            user = user_data.get_user(member.id)
-            if user.exit_audio:
-                await read_text(user.exit_audio, voice_client, member.id)
-            else:
-                await read_text(
-                    f"{member.display_name}さんが退室しました。",
-                    voice_client,
-                    member.id,
-                )
+            text = (
+                user.exit_audio
+                if user.exit_audio
+                else f"**`{member.display_name}`**さんが退室しました。"
+            )
         # when user join channel
         elif not before.channel and after.channel:
-            user = user_data.get_user(member.id)
-            if user.entry_audio:
-                await read_text(user.entry_audio, voice_client, member.id)
-            else:
-                await read_text(
-                    f"{member.display_name}さんが入室しました。",
-                    voice_client,
-                    member.id,
-                )
+            text = (
+                user.exit_audio
+                if user.exit_audio
+                else f"**`{member.display_name}`**さんが入室しました。"
+            )
+        else:
+            text = ""
+
+        if text:
+            await read_text(
+                text,
+                voice_client,
+                member.id,
+            )
 
 
-async def text_channel_autocomplete(
+async def yomiage_channel_autocomplete(
     interaction: discord.Interaction, text_channel_name: str
 ) -> List[app_commands.Choice]:
-    result = []
-    for text_channel in interaction.guild.text_channels:
-        if (
-            text_channel_name
-            and text_channel.name.lower() not in text_channel_name.lower()
-        ):
-            continue
-        # I have no idea why but if I return value as int, it won't work
-        result.append(
-            app_commands.Choice(name=text_channel.name, value=str(text_channel.id))
-        )
-    return result
+    result = [
+        app_commands.Choice(name=tc.name, value=str(tc.id))
+        for tc in interaction.guild.text_channels
+        # if there is no input text or input text is in the channel name
+        if not text_channel_name or text_channel_name.lower() in tc.name.lower()
+    ]
+    # Limit to 25 items due to Discord's limit
+    return result[:25]
 
 
 @tree.command(
     name="join",
-    description="チャンネルを指定する場合、指定したチャンネルの文字を読み上げ、\
-        指定しない場合、このコマンドが実行されたテキストチャンネルの文字を読み上げます。",
+    description="指定した文字チャンネルを読み上げる。",
 )
-@app_commands.autocomplete(text_channel_id=text_channel_autocomplete)
-async def join(inter: discord.Interaction, text_channel_id: str = ""):
+@app_commands.autocomplete(yomiage_channel=yomiage_channel_autocomplete)
+async def join(inter: discord.Interaction, yomiage_channel: str = ""):
     if inter.user.voice:
         voice_channel = inter.user.voice.channel
     else:
@@ -207,7 +212,7 @@ async def join(inter: discord.Interaction, text_channel_id: str = ""):
 
     # get current voice_client
     voice_client = discord.utils.get(client.voice_clients, guild=inter.user.guild)
-    # if bot is in voice channel already
+    # if bot is in voice channel already, move to the specified channel
     if voice_client:
         if voice_client.channel.id != voice_channel.id:
             await voice_client.move_to(voice_channel)
@@ -215,16 +220,22 @@ async def join(inter: discord.Interaction, text_channel_id: str = ""):
                 await asyncio.sleep(0.1)
             text = "チャンネル移動なのだ！"
         else:
-            text = "もうこのチャンネルに入っているのだ！"
+            # if bot is in voice channel, but user changed the yomiage channel
+            global YOMIAGE_TEXT_CHANNEL_ID
+            if YOMIAGE_TEXT_CHANNEL_ID == int(yomiage_channel):
+                text = "もうこのチャンネルに入っているのだ！"
+            else:
+                text = "読み上げチャンネルを変更したのだ！"
     else:
         # join the voice channel that user in
         voice_client = await voice_channel.connect()
         text = "ウィィィッス！どうもー、しゃむだもんでーす"
     await read_text(text, voice_client, client.user.id)
 
-    global TEXT_CHANNEL_ID
-    TEXT_CHANNEL_ID = int(text_channel_id) if text_channel_id else inter.channel.id
-    text += f"\n> 現在文字読みチャンネル: <#{TEXT_CHANNEL_ID}>"
+    YOMIAGE_TEXT_CHANNEL_ID = (
+        int(yomiage_channel) if yomiage_channel else inter.channel.id
+    )
+    text += f"\n> 現在文字読みチャンネル: <#{YOMIAGE_TEXT_CHANNEL_ID}>"
     await inter.response.send_message(text)
 
 
@@ -238,17 +249,11 @@ async def disconnect(inter: discord.Interaction):
 async def speaker_autocomplete(
     interaction: discord.Interaction, speaker_name: str
 ) -> List[app_commands.Choice]:
-    if speaker_name:
-        result = [
-            app_commands.Choice(name=key, value=key)
-            for key in voice_vox.speaker_dict.keys()
-            if speaker_name.lower() in key.lower()
-        ]
-    else:
-        result = [
-            app_commands.Choice(name=key, value=key)
-            for key in voice_vox.speaker_dict.keys()
-        ]
+    result = [
+        app_commands.Choice(name=key, value=key)
+        for key in voice_vox.speaker_dict.keys()
+        if not speaker_name or speaker_name.lower() in key.lower()
+    ]
     return result[:25]
 
 
@@ -264,29 +269,25 @@ async def style_autocomplete(
     return result
 
 
-@tree.command(
-    name="set_voice",
-    description="読み上げ音声のキャラクターを変更します。"
-    "discordの制限で25項目しかだせない。",
-)
+@tree.command(name="set_voice", description="読み上げ音声のキャラクターを変更する。")
 @app_commands.autocomplete(
     speaker_name=speaker_autocomplete, style_id=style_autocomplete
 )
 async def set_voice(inter: discord.Interaction, speaker_name: str, style_id: int = 0):
     if style_id == 0:
         style_name, style_id = list(voice_vox.speaker_dict[speaker_name].items())[0]
-        name = style_name + speaker_name
+        name = f"{style_name} {speaker_name}"
     else:
         name = voice_vox.get_speaker_name(style_id)
     user = user_data.get_user(inter.user.id)
     user.sound = style_id
     user_data.save_user(user)
-    await inter.response.send_message(f"音声を{name}に設定しました。")
+    await inter.response.send_message(f"音声を**`{name}`**に設定しました。")
 
 
 @tree.command(
     name="set_entry_audio",
-    description="入場時の読み上げ音声を指定する。パラメータなしでリセット。",
+    description="入場時の読み上げ音声を指定、空でリセット。",
 )
 @app_commands.describe(text="文字数は50文字以内。")
 async def set_entry_audio(inter: discord.Interaction, text: str = ""):
@@ -297,14 +298,14 @@ async def set_entry_audio(inter: discord.Interaction, text: str = ""):
     user.entry_audio = text
     user_data.save_user(user)
     if text:
-        await inter.response.send_message(f"入場音声を{text}に設定しました。")
+        await inter.response.send_message(f"入場音声を**`{text}`**に設定しました。")
     else:
         await inter.response.send_message("入場音声をリセットしました。")
 
 
 @tree.command(
     name="set_exit_audio",
-    description="退場時の読み上げ音声を指定する。パラメータなしでリセット。",
+    description="退場時の読み上げ音声を指定、空でリセット。",
 )
 @app_commands.describe(text="文字数は50文字以内。")
 async def set_exit_audio(inter: discord.Interaction, text: str = ""):
@@ -315,7 +316,7 @@ async def set_exit_audio(inter: discord.Interaction, text: str = ""):
     user.exit_audio = text
     user_data.save_user(user)
     if text:
-        await inter.response.send_message(f"退場音声を{text}に設定しました。")
+        await inter.response.send_message(f"退場音声を**`{text}`**に設定しました。")
     else:
         await inter.response.send_message("退場音声をリセットしました。")
 
@@ -326,7 +327,7 @@ async def background_task():
     Background task run in every 1 minutes
     """
     await client.wait_until_ready()
-    # Leave voice channel if no member in voice channel
+    # Leave voice channel if no members left in voice channel
     for voice_client in client.voice_clients:
         if len(voice_client.channel.voice_states.keys()) < 2:
             await voice_client.disconnect(force=True)
