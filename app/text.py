@@ -22,13 +22,13 @@ _W_PATTERN = re.compile(r"[wWｗＷ]{4,}")
 _URL_TRAILING_PUNCTUATION = ".,!?;:)]}，。！？；：、）】》」』"
 
 _ATTACHMENT_TYPES = (
-    ("application", "アプリケーション"),
-    ("audio", "音声"),
-    ("image", "画像"),
-    ("message", "メッセージ"),
-    ("multipart", "マルチ"),
-    ("text", "テキスト"),
-    ("video", "動画"),
+    ("application", "添付アプリケーション"),
+    ("audio", "添付音声"),
+    ("image", "添付画像"),
+    ("message", "添付メッセージ"),
+    ("multipart", "添付マルチパート"),
+    ("text", "添付テキスト"),
+    ("video", "添付動画"),
 )
 
 
@@ -39,18 +39,18 @@ def normalize_text(text: str) -> str | None:
 
     normalized = _URL_PATTERN.sub(_replace_url, text)
     normalized = _IPV6_PATTERN.sub(_replace_ipv6, normalized)
-    normalized = _IPV4_PATTERN.sub("IPアドレス", normalized)
+    normalized = _IPV4_PATTERN.sub("IPアドレス。", normalized)
 
-    normalized = _W_PATTERN.sub("わらわら", normalized)
+    normalized = _W_PATTERN.sub("わらわら。", normalized)
     if len(normalized) > 300:
-        normalized = normalized[:300] + "以下省略"
+        normalized = normalized[:300] + "以下省略。"
     return normalized
 
 
 def _replace_url(match: re.Match[str]) -> str:
     value = match.group(0)
     trimmed = value.rstrip(_URL_TRAILING_PUNCTUATION)
-    return f"ウェブサイトリンク{value[len(trimmed):]}"
+    return f"ウェブサイトリンク{value[len(trimmed):]}。"
 
 
 def _replace_ipv6(match: re.Match[str]) -> str:
@@ -59,15 +59,15 @@ def _replace_ipv6(match: re.Match[str]) -> str:
         ipaddress.IPv6Address(value)
     except ValueError:
         return value
-    return "IPアドレス"
+    return "IPアドレス。"
 
 
 def attachment_category(content_type: str | None) -> str:
     value = (content_type or "").lower()
     for prefix, category in _ATTACHMENT_TYPES:
         if prefix in value:
-            return category
-    return "うんこなう"
+            return f"{category}。"
+    return "うんこなう。"
 
 
 def attachment_announcements(attachments: Iterable[object]) -> list[str]:
