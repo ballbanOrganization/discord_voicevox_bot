@@ -178,7 +178,8 @@ def _register_set_voice(bot: VoiceVoxBot) -> None:
         description="読み上げ音声のキャラクターを変更する。",
     )
     @app_commands.describe(
-        speed_scale="話速。1.0が標準です。",
+        style_id="音声のスタイル、ノーマルが標準。",
+        speed_scale="話速。1.0が標準。",
     )
     @app_commands.autocomplete(style_id=style_autocomplete)
     @app_commands.autocomplete(speaker_name=speaker_autocomplete)
@@ -216,6 +217,32 @@ def _register_set_voice(bot: VoiceVoxBot) -> None:
         await inter.response.send_message(
             f"音声を**`{name}`**（話速: **`{speed_scale}`**）に設定しました。"
         )
+
+
+def _register_set_speed(bot: VoiceVoxBot) -> None:
+    @bot.tree.command(
+        name="set_speed",
+        description="読み上げ音声の話速を変更する。",
+    )
+    @app_commands.describe(
+        speed_scale="話速。1.0が標準です。",
+    )
+    async def set_speed(
+        inter: discord.Interaction,
+        speed_scale: float,
+    ) -> None:
+        try:
+            speed_scale = normalize_speed_scale(speed_scale)
+        except (TypeError, ValueError):
+            await inter.response.send_message(
+                "speedScaleは0より大きい数値で設定してください。"
+            )
+            return
+
+        user = bot.user_data.get_user(inter.user.id)
+        user.speed_scale = speed_scale
+        bot.user_data.save_user(user)
+        await inter.response.send_message(f"話速を**`{speed_scale}`**に設定しました。")
 
 
 def _register_set_entry_audio(bot: VoiceVoxBot) -> None:
@@ -266,5 +293,6 @@ def register_commands(bot: VoiceVoxBot) -> None:
     _register_join(bot)
     _register_disconnect(bot)
     _register_set_voice(bot)
+    _register_set_speed(bot)
     _register_set_entry_audio(bot)
     _register_set_exit_audio(bot)
