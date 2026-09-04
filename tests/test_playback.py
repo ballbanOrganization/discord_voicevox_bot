@@ -45,6 +45,80 @@ def test_enqueue_after_idle_worker_exits_starts_a_new_worker():
     asyncio.run(scenario())
 
 
+def test_playback_queue_prepares_next_item_while_previous_item_plays():
+    async def scenario():
+        preparing = []
+        played = []
+        first_started = asyncio.Event()
+        second_prepared = asyncio.Event()
+        release_first = asyncio.Event()
+
+        async def prepare(item):
+            preparing.append(item.text)
+            if item.text == "second":
+                second_prepared.set()
+            return item
+
+        async def player(item):
+            if item.text == "first":
+                first_started.set()
+                await release_first.wait()
+            played.append(item.text)
+
+        queue = PlaybackQueue(
+            player,
+            idle_timeout=0.05,
+            prepare=prepare,
+        )
+        await queue.enqueue(PlaybackItem("first", 1))
+        await asyncio.wait_for(first_started.wait(), timeout=1)
+        await queue.enqueue(PlaybackItem("second", 1))
+        await asyncio.wait_for(second_prepared.wait(), timeout=1)
+
+        assert preparing == ["first", "second"]
+        assert played == []
+
+        release_first.set()
+        await queue.wait_until_empty()
+        await queue.stop()
+
+        assert played == ["first", "second"]
+
+    asyncio.run(scenario())
+
+
+def test_playback_queue_waits_for_synthesis_before_idle_shutdown():
+    async def scenario():
+        preparing = asyncio.Event()
+        release_preparation = asyncio.Event()
+        played = []
+
+        async def prepare(item):
+            preparing.set()
+            await release_preparation.wait()
+            return item
+
+        async def player(item):
+            played.append(item.text)
+
+        queue = PlaybackQueue(
+            player,
+            idle_timeout=0.01,
+            prepare=prepare,
+        )
+        await queue.enqueue(PlaybackItem("slow", 1))
+        await asyncio.wait_for(preparing.wait(), timeout=1)
+        await asyncio.sleep(0.03)
+
+        release_preparation.set()
+        await asyncio.wait_for(queue.wait_until_empty(), timeout=1)
+        await queue.stop()
+
+        assert played == ["slow"]
+
+    asyncio.run(scenario())
+
+
 def test_guild_runtime_disconnect_cleans_state_and_worker():
     async def scenario():
         disconnected = []

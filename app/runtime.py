@@ -19,9 +19,15 @@ class GuildRuntimeManager:
         self,
         player: Callable[[GuildState, PlaybackItem], Awaitable[None]],
         idle_timeout: float | None = 300.0,
+        preparer: Callable[
+            [GuildState, PlaybackItem],
+            Awaitable[PlaybackItem],
+        ]
+        | None = None,
     ):
         self._player = player
         self._idle_timeout = idle_timeout
+        self._preparer = preparer
         self._states: dict[int, GuildState] = {}
 
     def get(self, guild_id: int) -> GuildState | None:
@@ -42,10 +48,22 @@ class GuildRuntimeManager:
                 text_channel_id=int(text_channel_id),
                 playback=None,  # type: ignore[arg-type]
             )
-            state.playback = PlaybackQueue(
-                lambda item: self._player(state, item),
-                idle_timeout=self._idle_timeout,
-            )
+            if self._preparer is None:
+                state.playback = PlaybackQueue(
+                    lambda item: self._player(state, item),
+                    idle_timeout=self._idle_timeout,
+                )
+            else:
+                preparer = self._preparer
+
+                async def prepare(item: PlaybackItem) -> PlaybackItem:
+                    return await preparer(state, item)
+
+                state.playback = PlaybackQueue(
+                    lambda item: self._player(state, item),
+                    idle_timeout=self._idle_timeout,
+                    prepare=prepare,
+                )
             self._states[normalized_id] = state
         else:
             state.voice_client = voice_client

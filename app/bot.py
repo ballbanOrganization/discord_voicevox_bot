@@ -1,5 +1,6 @@
 import asyncio
 import logging
+from dataclasses import replace
 
 import discord
 from discord import app_commands
@@ -50,6 +51,7 @@ class VoiceVoxBot(discord.Client):
         self.runtimes = GuildRuntimeManager(
             self._play_item,
             idle_timeout=settings.queue_idle_timeout,
+            preparer=self._prepare_item,
         )
         self._cleanup_task: asyncio.Task[None] | None = None
         register_commands(self)
@@ -79,9 +81,18 @@ class VoiceVoxBot(discord.Client):
     ) -> None:
         await handle_voice_state_update(self, member, before, after)
 
-    async def _play_item(self, state: GuildState, item: PlaybackItem) -> None:
+    async def _prepare_item(
+        self,
+        _state: GuildState,
+        item: PlaybackItem,
+    ) -> PlaybackItem:
         path = await self.speech.audio_path(item.text, item.user_id)
-        await play_voice_file(state.voice_client, path)
+        return replace(item, audio_path=path)
+
+    async def _play_item(self, state: GuildState, item: PlaybackItem) -> None:
+        if item.audio_path is None:
+            raise RuntimeError("Playback item has not been prepared.")
+        await play_voice_file(state.voice_client, item.audio_path)
         user = self.user_data.get_user(item.user_id)
         speaker_name = self.voicevox.get_speaker_name(user.sound)
         logger.info("Speaker: %s, Text: %s", speaker_name, item.text)

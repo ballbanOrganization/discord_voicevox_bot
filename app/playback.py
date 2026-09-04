@@ -13,30 +13,38 @@ logger = logging.getLogger(__name__)
 class PlaybackItem:
     text: str
     user_id: int
+    audio_path: Path | None = None
 
 
 class PlaybackQueue:
-    """A FIFO queue with one worker that serializes playback for one guild."""
+    """A FIFO queue with sequential preparation and playback for one guild."""
 
     def __init__(
         self,
         player: Callable[[PlaybackItem], Awaitable[None]],
         idle_timeout: float | None = 300.0,
+        prepare: Callable[[PlaybackItem], Awaitable[PlaybackItem]] | None = None,
     ):
         self.queue: asyncio.Queue[PlaybackItem] = asyncio.Queue()
+        self._audio_queue: asyncio.Queue[PlaybackItem] = asyncio.Queue()
         self._player = player
+        self._prepare = prepare or self._identity
         self._idle_timeout = idle_timeout
-        self._worker: asyncio.Task[None] | None = None
+        self._synthesis_worker: asyncio.Task[None] | None = None
+        self._playback_worker: asyncio.Task[None] | None = None
         self._lifecycle_lock = asyncio.Lock()
         self._stopping = False
 
     @property
     def is_running(self) -> bool:
-        return self._worker is not None and not self._worker.done()
+        return any(
+            worker is not None and not worker.done()
+            for worker in (self._synthesis_worker, self._playback_worker)
+        )
 
     @property
     def pending_count(self) -> int:
-        return self.queue.qsize()
+        return self.queue.qsize() + self._audio_queue.qsize()
 
     async def enqueue(self, item: PlaybackItem) -> None:
         async with self._lifecycle_lock:
@@ -47,12 +55,19 @@ class PlaybackQueue:
 
     async def wait_until_empty(self) -> None:
         await self.queue.join()
+        await self._audio_queue.join()
 
     def _ensure_worker(self) -> None:
-        if self._worker is None or self._worker.done():
-            self._worker = asyncio.create_task(self._run())
+        if self._synthesis_worker is None or self._synthesis_worker.done():
+            self._synthesis_worker = asyncio.create_task(self._run_synthesis())
+        if self._playback_worker is None or self._playback_worker.done():
+            self._playback_worker = asyncio.create_task(self._run_playback())
 
-    async def _next_item(self) -> PlaybackItem | None:
+    @staticmethod
+    async def _identity(item: PlaybackItem) -> PlaybackItem:
+        return item
+
+    async def _next_input(self) -> PlaybackItem | None:
         if self._idle_timeout is None:
             return await self.queue.get()
 
@@ -65,14 +80,59 @@ class PlaybackQueue:
             async with self._lifecycle_lock:
                 if not self.queue.empty():
                     return self.queue.get_nowait()
-                if self._worker is asyncio.current_task():
-                    self._worker = None
+                if self._synthesis_worker is asyncio.current_task():
+                    self._synthesis_worker = None
                 return None
 
-    async def _run(self) -> None:
+    async def _next_audio(self) -> PlaybackItem | None:
+        if self._idle_timeout is None:
+            return await self._audio_queue.get()
+
+        while True:
+            try:
+                return await asyncio.wait_for(
+                    self._audio_queue.get(),
+                    timeout=self._idle_timeout,
+                )
+            except asyncio.TimeoutError:
+                async with self._lifecycle_lock:
+                    if not self._audio_queue.empty():
+                        return self._audio_queue.get_nowait()
+                    synthesis_worker = self._synthesis_worker
+                    if (
+                        synthesis_worker is not None
+                        and not synthesis_worker.done()
+                    ) or not self.queue.empty():
+                        continue
+                    if self._playback_worker is asyncio.current_task():
+                        self._playback_worker = None
+                    return None
+
+    async def _run_synthesis(self) -> None:
         try:
             while True:
-                item = await self._next_item()
+                item = await self._next_input()
+                if item is None:
+                    return
+
+                try:
+                    prepared_item = await self._prepare(item)
+                except asyncio.CancelledError:
+                    raise
+                except Exception:
+                    logger.exception("Preparing playback item failed: %s", item.text)
+                else:
+                    self._audio_queue.put_nowait(prepared_item)
+                finally:
+                    self.queue.task_done()
+        finally:
+            if self._synthesis_worker is asyncio.current_task():
+                self._synthesis_worker = None
+
+    async def _run_playback(self) -> None:
+        try:
+            while True:
+                item = await self._next_audio()
                 if item is None:
                     return
 
@@ -83,31 +143,49 @@ class PlaybackQueue:
                 except Exception:
                     logger.exception("Playback item failed: %s", item.text)
                 finally:
-                    self.queue.task_done()
+                    self._audio_queue.task_done()
         finally:
-            async with self._lifecycle_lock:
-                if self._worker is asyncio.current_task():
-                    self._worker = None
+            if self._playback_worker is asyncio.current_task():
+                self._playback_worker = None
 
-    async def stop(self) -> None:
-        async with self._lifecycle_lock:
-            self._stopping = True
-            worker = self._worker
-        if worker is not None and worker is not asyncio.current_task():
+    async def _cancel_workers(
+        self,
+        workers: list[asyncio.Task[None]],
+    ) -> None:
+        current = asyncio.current_task()
+        active_workers = [worker for worker in workers if worker is not current]
+        for worker in active_workers:
             worker.cancel()
+        for worker in active_workers:
             try:
                 await worker
             except asyncio.CancelledError:
                 pass
+
+    @staticmethod
+    def _drain(queue: asyncio.Queue[PlaybackItem]) -> None:
+        while True:
+            try:
+                queue.get_nowait()
+            except asyncio.QueueEmpty:
+                return
+            else:
+                queue.task_done()
+
+    async def stop(self) -> None:
         async with self._lifecycle_lock:
-            self._worker = None
-            while True:
-                try:
-                    self.queue.get_nowait()
-                except asyncio.QueueEmpty:
-                    break
-                else:
-                    self.queue.task_done()
+            self._stopping = True
+            workers = [
+                worker
+                for worker in (self._synthesis_worker, self._playback_worker)
+                if worker is not None
+            ]
+        await self._cancel_workers(workers)
+        async with self._lifecycle_lock:
+            self._synthesis_worker = None
+            self._playback_worker = None
+            self._drain(self.queue)
+            self._drain(self._audio_queue)
             self._stopping = False
 
 
