@@ -1,14 +1,25 @@
+import ipaddress
 import re
 from collections import defaultdict
 from collections.abc import Iterable
 
 _URL_PATTERN = re.compile(
-    r"(?:(?:https?|ftp)://|www\.)[^\s]+"
-    r"|(?:[A-Za-z0-9-]+\.)+[A-Za-z]{2,}(?:[/?#][^\s]*)?",
+    r"(?<![\w@])(?:https?://|ftp://|www\.)[^\s<>(){}]+"
+    r"|(?<![\w@./:-])"
+    r"(?:[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?\.)+"
+    r"[A-Za-z]{2,63}(?::\d+)?(?:[/?#][^\s<>(){}]*)?\.?"
+    r"(?![\w.-])",
     re.IGNORECASE,
 )
-_IP_PATTERN = re.compile(r"(?<!\d)(?:\d{1,3}\.){3}\d{1,3}(?!\d)")
+_IPV4_OCTET = r"(?:25[0-5]|2[0-4]\d|1\d{2}|[1-9]?\d)"
+_IPV4_PATTERN = re.compile(
+    rf"(?<![A-Za-z0-9.])(?:{_IPV4_OCTET}\.){{3}}{_IPV4_OCTET}(?![A-Za-z0-9.])"
+)
+_IPV6_PATTERN = re.compile(
+    r"(?<![A-Za-z0-9])[0-9A-Fa-f:.]*:[0-9A-Fa-f:.]*(?![A-Za-z0-9])"
+)
 _W_PATTERN = re.compile(r"[wWｗＷ]{4,}")
+_URL_TRAILING_PUNCTUATION = ".,!?;:)]}，。！？；：、）】》」』"
 
 _ATTACHMENT_TYPES = (
     ("application", "アプリケーション"),
@@ -26,16 +37,29 @@ def normalize_text(text: str) -> str | None:
     if text.startswith(("m!", "/")):
         return None
 
-    normalized = text
-    if _URL_PATTERN.search(normalized):
-        normalized = "リンク省略"
-    if _IP_PATTERN.search(normalized):
-        normalized = "IP省略"
+    normalized = _URL_PATTERN.sub(_replace_url, text)
+    normalized = _IPV6_PATTERN.sub(_replace_ipv6, normalized)
+    normalized = _IPV4_PATTERN.sub("IPアドレス", normalized)
 
     normalized = _W_PATTERN.sub("わらわら", normalized)
     if len(normalized) > 300:
         normalized = normalized[:300] + "以下省略"
     return normalized
+
+
+def _replace_url(match: re.Match[str]) -> str:
+    value = match.group(0)
+    trimmed = value.rstrip(_URL_TRAILING_PUNCTUATION)
+    return f"ウェブサイトリンク{value[len(trimmed):]}"
+
+
+def _replace_ipv6(match: re.Match[str]) -> str:
+    value = match.group(0)
+    try:
+        ipaddress.IPv6Address(value)
+    except ValueError:
+        return value
+    return "IPアドレス"
 
 
 def attachment_category(content_type: str | None) -> str:
