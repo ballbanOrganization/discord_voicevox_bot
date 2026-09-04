@@ -1,11 +1,14 @@
 import asyncio
 import json
+import random
 from collections import defaultdict
 from typing import Any
 
 import aiohttp
 
 from .config import DEFAULT_VOICEVOX_URL
+
+ALL_RANDOM_SPEAKER_ID = -1
 
 
 class VoiceVoxError(RuntimeError):
@@ -22,6 +25,7 @@ class VoiceVox:
         self.url = url.rstrip("/") + "/"
         self.timeout = timeout
         self.speaker_dict: defaultdict[str, dict[str, int]] = defaultdict(dict)
+        self._last_random_speaker_id: int | None = None
         self._session = session
         self._owns_session = session is None
 
@@ -69,7 +73,9 @@ class VoiceVox:
             raise VoiceVoxError(f"VOICEVOX request failed on /{endpoint}.") from error
 
     @staticmethod
-    async def _raise_for_status(response: aiohttp.ClientResponse, endpoint: str) -> None:
+    async def _raise_for_status(
+        response: aiohttp.ClientResponse, endpoint: str
+    ) -> None:
         if response.status < 400:
             return
         body = (await response.text())[:200]
@@ -117,6 +123,25 @@ class VoiceVox:
                 if style_id == speaker_id:
                     return style_name + speaker_name
         return "名称なし"
+
+    def get_random_speaker_id(self) -> int:
+        speaker_ids = [
+            style_id
+            for styles in self.speaker_dict.values()
+            for style_id in styles.values()
+        ]
+        if not speaker_ids:
+            raise VoiceVoxError("No VOICEVOX speakers have been loaded.")
+        candidates = speaker_ids
+        if len(set(speaker_ids)) > 1 and self._last_random_speaker_id in speaker_ids:
+            candidates = [
+                speaker_id
+                for speaker_id in speaker_ids
+                if speaker_id != self._last_random_speaker_id
+            ]
+        selected_speaker_id = random.choice(candidates)
+        self._last_random_speaker_id = selected_speaker_id
+        return selected_speaker_id
 
     async def close(self) -> None:
         if (

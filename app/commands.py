@@ -6,9 +6,14 @@ import discord
 from discord import app_commands
 
 from .playback import PlaybackItem
+from .voicevox import ALL_RANDOM_SPEAKER_ID
 
 if TYPE_CHECKING:
     from .bot import VoiceVoxBot
+
+
+ALL_RANDOM_SPEAKER_NAME: str = "All Random"
+RANDOM_SPEAKER_NAME: str = "Random / ランダム"
 
 
 async def yomiage_channel_autocomplete(
@@ -125,11 +130,26 @@ def _register_set_voice(bot: VoiceVoxBot) -> None:
         _interaction: discord.Interaction,
         current: str,
     ) -> list[app_commands.Choice[str]]:
-        result = [
+        result: list[app_commands.Choice[str]] = []
+        if not current or current.lower() in RANDOM_SPEAKER_NAME.lower():
+            result.append(
+                app_commands.Choice(
+                    name=RANDOM_SPEAKER_NAME,
+                    value=RANDOM_SPEAKER_NAME,
+                )
+            )
+        if current and current.lower() in ALL_RANDOM_SPEAKER_NAME.lower():
+            result.append(
+                app_commands.Choice(
+                    name=ALL_RANDOM_SPEAKER_NAME,
+                    value=ALL_RANDOM_SPEAKER_NAME,
+                )
+            )
+        result.extend(
             app_commands.Choice(name=name, value=name)
             for name in bot.voicevox.speaker_dict
             if not current or current.lower() in name.lower()
-        ]
+        )
         return result[:25]
 
     async def style_autocomplete(
@@ -163,12 +183,19 @@ def _register_set_voice(bot: VoiceVoxBot) -> None:
         speaker_name: str,
         style_id: int = 0,
     ) -> None:
-        styles = bot.voicevox.speaker_dict[speaker_name]
-        if style_id == 0:
-            style_name, style_id = next(iter(styles.items()))
-            name = f"{style_name} {speaker_name}"
-        else:
+        if speaker_name == RANDOM_SPEAKER_NAME:
+            style_id = bot.voicevox.get_random_speaker_id()
             name = bot.voicevox.get_speaker_name(style_id)
+        elif speaker_name == ALL_RANDOM_SPEAKER_NAME:
+            style_id = ALL_RANDOM_SPEAKER_ID
+            name = ALL_RANDOM_SPEAKER_NAME
+        else:
+            styles = bot.voicevox.speaker_dict[speaker_name]
+            if style_id == 0:
+                style_name, style_id = next(iter(styles.items()))
+                name = f"{style_name} {speaker_name}"
+            else:
+                name = bot.voicevox.get_speaker_name(style_id)
         user = bot.user_data.get_user(inter.user.id)
         user.sound = style_id
         bot.user_data.save_user(user)

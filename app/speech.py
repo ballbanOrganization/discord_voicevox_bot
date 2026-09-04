@@ -4,7 +4,7 @@ from pathlib import Path
 
 from .audio_cache import AudioCache
 from .user_repository import UserRepository
-from .voicevox import VoiceVox
+from .voicevox import ALL_RANDOM_SPEAKER_ID, VoiceVox
 
 
 @dataclass
@@ -27,7 +27,10 @@ class SpeechService:
 
     async def audio_path(self, text: str, user_id: int) -> Path:
         user = self.users.get_user(user_id)
-        speaker_name = self.voicevox.get_speaker_name(user.sound)
+        speaker_id = user.sound
+        if speaker_id == ALL_RANDOM_SPEAKER_ID:
+            speaker_id = self.voicevox.get_random_speaker_id()
+        speaker_name = self.voicevox.get_speaker_name(speaker_id)
         path = self.cache.path_for(text, speaker_name)
         if path.is_file():
             return path
@@ -40,7 +43,7 @@ class SpeechService:
         try:
             async with path_lock.lock:
                 if not path.is_file():
-                    content = await self.voicevox.text_to_sound(text, user.sound)
+                    content = await self.voicevox.text_to_sound(text, speaker_id)
                     await asyncio.to_thread(self.cache.write, path, content)
         finally:
             path_lock.users -= 1
