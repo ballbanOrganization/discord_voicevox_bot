@@ -10,34 +10,47 @@ permissions:
   contents: read
 
 jobs:
-  build:
-    runs-on: self-hosted
+  validate:
+    runs-on: windows-latest
     steps:
-    - uses: actions/checkout@v3
+    - uses: actions/checkout@v4
+
+    - name: Set up Python
+      uses: actions/setup-python@v5
       with:
-        clean: false
-        
+        python-version: "3.10"
+        cache: pip
+
     - name: Install dependencies
       run: |
-        . (Join-Path $env:USERPROFILE "PycharmProjects/discord_voicevox_bot/venv/Scripts/activate.ps1")
         python -m pip install --upgrade pip
-        pip install flake8
-        pip install pytest
-        pip install -r requirements.txt
-        
+        python -m pip install -r requirements.txt
+        python -m pip install flake8
+
     - name: Lint with flake8
       run: |
-        . (Join-Path $env:USERPROFILE "PycharmProjects/discord_voicevox_bot/venv/Scripts/activate.ps1")
         # stop the build if there are Python syntax errors or undefined names
-        flake8 . --exclude=.venv --count --select=E9,F63,F7,F82 --show-source --statistics
+        python -m flake8 . --exclude=.venv --count --select=E9,F63,F7,F82 --show-source --statistics
         # exit-zero treats all errors as warnings. The GitHub editor is 127 chars wide
-        flake8 . --exclude=.venv --count --exit-zero --max-complexity=10 --max-line-length=127 --statistics
+        python -m flake8 . --exclude=.venv --count --exit-zero --max-complexity=10 --max-line-length=127 --statistics
 
     - name: Run tests
       run: |
-        . (Join-Path $env:USERPROFILE "PycharmProjects/discord_voicevox_bot/venv/Scripts/activate.ps1")
         python -m pytest -q
-        
-    - name: Run application
+
+  deploy:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/master'
+    needs: validate
+    runs-on: self-hosted
+    concurrency:
+      group: discord-voicevox-bot-production
+      cancel-in-progress: false
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        # Preserve the service's local runtime files such as the audio cache.
+        clean: false
+
+    - name: Restart application
       run: |
         nssm restart discord_voicevox_bot
