@@ -21,6 +21,7 @@ def test_user_json_round_trip_and_schema(tmp_path):
             "sound": 8,
             "entry_audio": "入室",
             "exit_audio": "退室",
+            "speed_scale": 1.0,
         }
     }
 
@@ -29,6 +30,30 @@ def test_user_json_round_trip_and_schema(tmp_path):
     assert loaded.sound == 8
     assert loaded.entry_audio == "入室"
     assert loaded.exit_audio == "退室"
+    assert loaded.speed_scale == 1.0
+
+
+def test_speed_scale_round_trip_uses_user_data_schema(tmp_path):
+    path = tmp_path / "data" / "user_data.json"
+    repository = UserRepository(path)
+    user = repository.get_user(42)
+    user.speed_scale = 1.25
+    repository.save_user(user)
+
+    with path.open(encoding="utf-8") as data_file:
+        saved_user_data = json.load(data_file)
+
+    assert saved_user_data == {
+        "42": {
+            "user_id": 42,
+            "sound": 3,
+            "entry_audio": "",
+            "exit_audio": "",
+            "speed_scale": 1.25,
+        }
+    }
+    assert not (path.parent / "user_speed_data.json").exists()
+    assert UserRepository(path).get_user(42).speed_scale == 1.25
 
 
 def test_save_replaces_existing_file_atomically(tmp_path):

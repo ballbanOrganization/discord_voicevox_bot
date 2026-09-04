@@ -5,6 +5,8 @@ from pathlib import Path
 from threading import RLock
 from typing import TypeGuard, cast
 
+from .speed import DEFAULT_SPEED_SCALE, normalize_speed_scale
+
 
 def _is_string_keyed_dict(value: object) -> TypeGuard[dict[str, object]]:
     if not isinstance(value, dict):
@@ -45,6 +47,17 @@ def _read_text(
     return value
 
 
+def _read_speed_scale(
+    record: dict[str, object],
+    field_name: str,
+    *,
+    default: float = DEFAULT_SPEED_SCALE,
+) -> float:
+    if field_name not in record:
+        return default
+    return normalize_speed_scale(record[field_name])
+
+
 class User:
     def __init__(
         self,
@@ -52,11 +65,13 @@ class User:
         sound: int = 3,
         entry_audio: str = "",
         exit_audio: str = "",
+        speed_scale: float = DEFAULT_SPEED_SCALE,
     ):
         self.user_id = int(user_id)
         self.sound = int(sound)
         self.entry_audio = entry_audio
         self.exit_audio = exit_audio
+        self.speed_scale = normalize_speed_scale(speed_scale)
 
     def set_entry_audio(self, text: str) -> None:
         self.entry_audio = text
@@ -64,17 +79,18 @@ class User:
     def set_exit_audio(self, text: str) -> None:
         self.exit_audio = text
 
-    def to_dict(self) -> dict[str, int | str]:
+    def to_dict(self) -> dict[str, int | float | str]:
         return {
             "user_id": self.user_id,
             "sound": self.sound,
             "entry_audio": self.entry_audio,
             "exit_audio": self.exit_audio,
+            "speed_scale": self.speed_scale,
         }
 
 
 class UserRepository:
-    """Persist user settings using the existing JSON schema."""
+    """Persist user settings in the user data JSON file."""
 
     def __init__(
         self,
@@ -107,7 +123,13 @@ class UserRepository:
             except ValueError as error:
                 raise ValueError(f"Invalid user ID key: {key!r}.") from error
 
-            expected_fields = {"user_id", "sound", "entry_audio", "exit_audio"}
+            expected_fields = {
+                "user_id",
+                "sound",
+                "entry_audio",
+                "exit_audio",
+                "speed_scale",
+            }
             unexpected_fields = set(value) - expected_fields
             if unexpected_fields:
                 raise TypeError(
@@ -128,43 +150,48 @@ class UserRepository:
                 sound=_read_int(value, "sound", default=3),
                 entry_audio=_read_text(value, "entry_audio"),
                 exit_audio=_read_text(value, "exit_audio"),
+                speed_scale=_read_speed_scale(value, "speed_scale"),
             )
         with self._lock:
             self.user_data_dic = loaded
 
     def save_user_data(self) -> None:
         path = Path(self.file_path)
-        path.parent.mkdir(parents=True, exist_ok=True)
         with self._lock:
             data = {
                 str(user_id): user.to_dict()
                 for user_id, user in self.user_data_dic.items()
             }
 
-            temporary_path: str | None = None
-            try:
-                with tempfile.NamedTemporaryFile(
-                    mode="w",
-                    encoding="utf-8",
-                    newline="\n",
-                    dir=path.parent,
-                    prefix=f".{path.name}.",
-                    suffix=".tmp",
-                    delete=False,
-                ) as temporary:
-                    temporary_path = temporary.name
-                    json.dump(data, temporary, ensure_ascii=False, indent=4)
-                    temporary.write("\n")
-                    temporary.flush()
-                    os.fsync(temporary.fileno())
-                os.replace(temporary_path, path)
-                temporary_path = None
-            finally:
-                if temporary_path is not None:
-                    try:
-                        os.unlink(temporary_path)
-                    except FileNotFoundError:
-                        pass
+            self._write_json_atomically(path, data)
+
+    @staticmethod
+    def _write_json_atomically(path: Path, data: object) -> None:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        temporary_path: str | None = None
+        try:
+            with tempfile.NamedTemporaryFile(
+                mode="w",
+                encoding="utf-8",
+                newline="\n",
+                dir=path.parent,
+                prefix=f".{path.name}.",
+                suffix=".tmp",
+                delete=False,
+            ) as temporary:
+                temporary_path = temporary.name
+                json.dump(data, temporary, ensure_ascii=False, indent=4)
+                temporary.write("\n")
+                temporary.flush()
+                os.fsync(temporary.fileno())
+            os.replace(temporary_path, path)
+            temporary_path = None
+        finally:
+            if temporary_path is not None:
+                try:
+                    os.unlink(temporary_path)
+                except FileNotFoundError:
+                    pass
 
     def get_user(self, user_id: int) -> User:
         normalized_id = int(user_id)

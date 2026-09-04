@@ -17,7 +17,7 @@ def test_speech_service_deduplicates_generation_and_releases_locks(tmp_path):
             def get_speaker_name(self, speaker_id):
                 return "speaker"
 
-            async def text_to_sound(self, text, speaker):
+            async def text_to_sound(self, text, speaker, speed_scale=1.0):
                 await asyncio.sleep(0.001)
                 calls.append((text, speaker))
                 return b"RIFF"
@@ -59,7 +59,7 @@ def test_all_random_selects_a_speaker_for_each_request(tmp_path):
             def get_speaker_name(self, speaker_id):
                 return f"speaker {speaker_id}"
 
-            async def text_to_sound(self, text, speaker):
+            async def text_to_sound(self, text, speaker, speed_scale=1.0):
                 synthesis_calls.append((text, speaker))
                 return b"RIFF"
 
@@ -91,7 +91,7 @@ def test_speech_service_regenerates_expired_cache(tmp_path):
             def get_speaker_name(self, speaker_id):
                 return f"speaker {speaker_id}"
 
-            async def text_to_sound(self, text, speaker):
+            async def text_to_sound(self, text, speaker, speed_scale=1.0):
                 synthesis_calls.append((text, speaker))
                 return b"RIFF"
 
@@ -113,5 +113,35 @@ def test_speech_service_regenerates_expired_cache(tmp_path):
 
         assert refreshed_path == path
         assert synthesis_calls == [("same", 3), ("same", 3)]
+
+    asyncio.run(scenario())
+
+
+def test_speech_service_separates_cache_and_synthesis_by_speed_scale(tmp_path):
+    async def scenario():
+        synthesis_calls = []
+
+        class VoiceVox:
+            def get_speaker_name(self, speaker_id):
+                return f"speaker {speaker_id}"
+
+            async def text_to_sound(self, text, speaker, speed_scale):
+                synthesis_calls.append((text, speaker, speed_scale))
+                return b"RIFF"
+
+        class Users:
+            def get_user(self, user_id):
+                return SimpleNamespace(sound=3, speed_scale=1.25)
+
+        service = SpeechService(
+            VoiceVox(),
+            Users(),
+            AudioCache(tmp_path / "audio"),
+        )
+
+        path = await service.audio_path("same", 1)
+
+        assert path.name == f"{AudioCache.cache_key('same')}-speed-1.25.wav"
+        assert synthesis_calls == [("same", 3, 1.25)]
 
     asyncio.run(scenario())

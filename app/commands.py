@@ -6,6 +6,7 @@ import discord
 from discord import app_commands
 
 from .playback import PlaybackItem
+from .speed import DEFAULT_SPEED_SCALE, normalize_speed_scale
 from .voicevox import ALL_RANDOM_SPEAKER_ID
 
 if TYPE_CHECKING:
@@ -176,13 +177,25 @@ def _register_set_voice(bot: VoiceVoxBot) -> None:
         name="set_voice",
         description="読み上げ音声のキャラクターを変更する。",
     )
+    @app_commands.describe(
+        speed_scale="話速。1.0が標準です。",
+    )
     @app_commands.autocomplete(style_id=style_autocomplete)
     @app_commands.autocomplete(speaker_name=speaker_autocomplete)
     async def set_voice(
         inter: discord.Interaction,
         speaker_name: str,
         style_id: int = 0,
+        speed_scale: float = DEFAULT_SPEED_SCALE,
     ) -> None:
+        try:
+            speed_scale = normalize_speed_scale(speed_scale)
+        except (TypeError, ValueError):
+            await inter.response.send_message(
+                "speedScaleは0より大きい数値で設定してください。"
+            )
+            return
+
         if speaker_name == RANDOM_SPEAKER_NAME:
             style_id = bot.voicevox.get_random_speaker_id()
             name = bot.voicevox.get_speaker_name(style_id)
@@ -198,8 +211,11 @@ def _register_set_voice(bot: VoiceVoxBot) -> None:
                 name = bot.voicevox.get_speaker_name(style_id)
         user = bot.user_data.get_user(inter.user.id)
         user.sound = style_id
+        user.speed_scale = speed_scale
         bot.user_data.save_user(user)
-        await inter.response.send_message(f"音声を**`{name}`**に設定しました。")
+        await inter.response.send_message(
+            f"音声を**`{name}`**（話速: **`{speed_scale}`**）に設定しました。"
+        )
 
 
 def _register_set_entry_audio(bot: VoiceVoxBot) -> None:

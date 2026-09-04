@@ -17,6 +17,19 @@ def test_cache_key_and_path_match_legacy_layout(tmp_path):
     )
 
 
+def test_cache_path_includes_non_default_speed_scale(tmp_path):
+    cache = AudioCache(tmp_path / "audio")
+
+    normal_path = cache.path_for("hello", "style speaker")
+    fast_path = cache.path_for("hello", "style speaker", 1.2)
+    slow_path = cache.path_for("hello", "style speaker", 0.8)
+
+    assert normal_path != fast_path
+    assert fast_path != slow_path
+    assert fast_path.name == f"{cache.cache_key('hello')}-speed-1.2.wav"
+    assert slow_path.name == f"{cache.cache_key('hello')}-speed-0.8.wav"
+
+
 def test_cache_write_creates_parent_and_file(tmp_path):
     cache = AudioCache(tmp_path / "audio")
     path = cache.path_for("hello", "style speaker")

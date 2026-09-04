@@ -3,6 +3,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from .audio_cache import AudioCache
+from .speed import DEFAULT_SPEED_SCALE, normalize_speed_scale
 from .user_repository import UserRepository
 from .voicevox import ALL_RANDOM_SPEAKER_ID, VoiceVox
 
@@ -30,8 +31,11 @@ class SpeechService:
         speaker_id = user.sound
         if speaker_id == ALL_RANDOM_SPEAKER_ID:
             speaker_id = self.voicevox.get_random_speaker_id()
+        speed_scale = normalize_speed_scale(
+            getattr(user, "speed_scale", DEFAULT_SPEED_SCALE)
+        )
         speaker_name = self.voicevox.get_speaker_name(speaker_id)
-        path = self.cache.path_for(text, speaker_name)
+        path = self.cache.path_for(text, speaker_name, speed_scale)
         if self.cache.is_fresh(path):
             return path
 
@@ -43,7 +47,11 @@ class SpeechService:
         try:
             async with path_lock.lock:
                 if not self.cache.is_fresh(path):
-                    content = await self.voicevox.text_to_sound(text, speaker_id)
+                    content = await self.voicevox.text_to_sound(
+                        text,
+                        speaker_id,
+                        speed_scale,
+                    )
                     await asyncio.to_thread(self.cache.write, path, content)
         finally:
             path_lock.users -= 1

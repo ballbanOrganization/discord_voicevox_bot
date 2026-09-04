@@ -48,3 +48,29 @@ def test_random_speaker_id_avoids_the_previous_selection(monkeypatch):
     assert voicevox.get_random_speaker_id() == 3
     assert voicevox.get_random_speaker_id() == 107
     assert candidate_lists == [[3, 107], [107]]
+
+
+def test_text_to_sound_applies_speed_scale_to_audio_query():
+    async def scenario():
+        captured = {}
+
+        class TestVoiceVox(VoiceVox):
+            async def get_query(self, text, speaker):
+                return {"text": text, "speaker": speaker, "speedScale": 1.0}
+
+            async def get_synthesis(self, query, speaker):
+                captured["query"] = query
+                captured["speaker"] = speaker
+                return b"RIFF"
+
+        voicevox = TestVoiceVox()
+
+        assert await voicevox.text_to_sound("hello", 3, 1.25) == b"RIFF"
+        assert captured == {
+            "query": {"text": "hello", "speaker": 3, "speedScale": 1.25},
+            "speaker": 3,
+        }
+
+    import asyncio
+
+    asyncio.run(scenario())

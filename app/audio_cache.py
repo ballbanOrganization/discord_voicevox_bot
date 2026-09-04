@@ -5,6 +5,12 @@ import time
 from datetime import timedelta
 from pathlib import Path
 
+from .speed import (
+    DEFAULT_SPEED_SCALE,
+    format_speed_scale,
+    normalize_speed_scale,
+)
+
 
 class AudioCache:
     """Manage the compatible speaker-directory and expiring MD5 WAV cache."""
@@ -17,8 +23,19 @@ class AudioCache:
     def cache_key(text: str) -> str:
         return hashlib.md5(text.encode("utf-8")).hexdigest()
 
-    def path_for(self, text: str, speaker_name: str) -> Path:
-        return self.root / speaker_name / f"{self.cache_key(text)}.wav"
+    def path_for(
+        self,
+        text: str,
+        speaker_name: str,
+        speed_scale: float = DEFAULT_SPEED_SCALE,
+    ) -> Path:
+        normalized_speed_scale = normalize_speed_scale(speed_scale)
+        speed_suffix = (
+            ""
+            if normalized_speed_scale == DEFAULT_SPEED_SCALE
+            else f"-speed-{format_speed_scale(normalized_speed_scale)}"
+        )
+        return self.root / speaker_name / f"{self.cache_key(text)}{speed_suffix}.wav"
 
     def is_fresh(self, path: str | os.PathLike[str]) -> bool:
         path = Path(path)

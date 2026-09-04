@@ -7,6 +7,7 @@ from typing import Any
 import aiohttp
 
 from .config import DEFAULT_VOICEVOX_URL
+from .speed import DEFAULT_SPEED_SCALE, normalize_speed_scale
 
 ALL_RANDOM_SPEAKER_ID = -1
 
@@ -113,8 +114,15 @@ class VoiceVox:
             headers={"Content-Type": "application/json"},
         )
 
-    async def text_to_sound(self, text: str, speaker: int = 3) -> bytes:
+    async def text_to_sound(
+        self,
+        text: str,
+        speaker: int = 3,
+        speed_scale: float = DEFAULT_SPEED_SCALE,
+    ) -> bytes:
+        speed_scale = normalize_speed_scale(speed_scale)
         query = await self.get_query(text, speaker)
+        query["speedScale"] = speed_scale
         return await self.get_synthesis(query, speaker)
 
     def get_speaker_name(self, speaker_id: int) -> str:
