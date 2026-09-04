@@ -3,8 +3,8 @@ from types import SimpleNamespace
 
 from app.events import handle_message, handle_voice_state_update
 from app.message_status import (
-    PLAYING_REACTION_MIN_LENGTH,
     PLAYING_REACTION,
+    PLAYING_REACTION_MIN_LENGTH,
 )
 from app.playback import PlaybackItem
 from app.runtime import GuildRuntimeManager
@@ -15,8 +15,9 @@ class RecordingRuntime:
         self.items = []
 
     def get(self, guild_id):
-        return SimpleNamespace(voice_client=SimpleNamespace(is_connected=lambda: True),
-                               text_channel_id=10)
+        return SimpleNamespace(
+            voice_client=SimpleNamespace(is_connected=lambda: True), text_channel_id=10
+        )
 
     async def enqueue(self, guild_id, item):
         self.items.append((guild_id, item))
@@ -40,7 +41,7 @@ def test_message_normalization_does_not_mutate_discord_message():
 
         assert message.content == "hello wwwww"
         assert bot.runtimes.items == [
-            (7, PlaybackItem("hello わらわら", 1)),
+            (7, PlaybackItem("hello わらわら。", 1)),
         ]
 
     asyncio.run(scenario())

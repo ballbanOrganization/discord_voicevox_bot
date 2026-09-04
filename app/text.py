@@ -39,9 +39,9 @@ def normalize_text(text: str) -> str | None:
 
     normalized = _URL_PATTERN.sub(_replace_url, text)
     normalized = _IPV6_PATTERN.sub(_replace_ipv6, normalized)
-    normalized = _IPV4_PATTERN.sub("IPアドレス。", normalized)
+    normalized = _IPV4_PATTERN.sub(_replace_ipv4, normalized)
 
-    normalized = _W_PATTERN.sub("わらわら。", normalized)
+    normalized = _W_PATTERN.sub(_replace_w, normalized)
     if len(normalized) > 300:
         normalized = normalized[:300] + "以下省略。"
     return normalized
@@ -50,7 +50,24 @@ def normalize_text(text: str) -> str | None:
 def _replace_url(match: re.Match[str]) -> str:
     value = match.group(0)
     trimmed = value.rstrip(_URL_TRAILING_PUNCTUATION)
-    return f"ウェブサイトリンク{value[len(trimmed):]}。"
+    trailing = value[len(trimmed):]
+    return f"ウェブサイトリンク{trailing or '。'}"
+
+
+def _replacement_ending(match: re.Match[str]) -> str:
+    if match.end() < len(match.string):
+        next_character = match.string[match.end()]
+        if next_character in _URL_TRAILING_PUNCTUATION:
+            return ""
+    return "。"
+
+
+def _replace_ipv4(match: re.Match[str]) -> str:
+    return f"IPアドレス{_replacement_ending(match)}"
+
+
+def _replace_w(match: re.Match[str]) -> str:
+    return f"わらわら{_replacement_ending(match)}"
 
 
 def _replace_ipv6(match: re.Match[str]) -> str:
@@ -59,7 +76,7 @@ def _replace_ipv6(match: re.Match[str]) -> str:
         ipaddress.IPv6Address(value)
     except ValueError:
         return value
-    return "IPアドレス。"
+    return f"IPアドレス{_replacement_ending(match)}"
 
 
 def attachment_category(content_type: str | None) -> str:
@@ -79,6 +96,9 @@ def attachment_announcements(attachments: Iterable[object]) -> list[str]:
 
     announcements: list[str] = []
     for category, count in counts.items():
+        label = category.removesuffix("。")
+        if not label.startswith("添付"):
+            label = f"添付{label}"
         suffix = str(count) if count > 1 else ""
-        announcements.append(f"添付{category}{suffix}")
+        announcements.append(f"{label}{suffix}。")
     return announcements
