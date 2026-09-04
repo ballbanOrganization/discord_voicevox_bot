@@ -16,9 +16,10 @@ jobs:
     - uses: actions/checkout@v4
 
     - name: Set up Python
-      uses: actions/setup-python@v5
+      uses: actions/setup-python@v7
       with:
         python-version: "3.10"
+        architecture: x64
         cache: pip
 
     - name: Install dependencies
@@ -42,6 +43,8 @@ jobs:
     if: github.event_name == 'push' && github.ref == 'refs/heads/master'
     needs: validate
     runs-on: self-hosted
+    env:
+      PRODUCTION_PYTHON: C:\Users\Administrator\AppData\Local\Programs\Python\Python310\python.exe
     concurrency:
       group: discord-voicevox-bot-production
       cancel-in-progress: false
@@ -51,27 +54,28 @@ jobs:
         # Preserve the service's local runtime files such as the audio cache and venv.
         clean: false
 
-    - name: Set up Python
-      uses: actions/setup-python@v5
-      with:
-        python-version: "3.10"
-        cache: pip
-        cache-dependency-path: requirements.txt
-
     - name: Create production virtual environment
       shell: powershell
       run: |
         $ErrorActionPreference = "Stop"
+        $basePython = $env:PRODUCTION_PYTHON
+        if (-not (Test-Path -LiteralPath $basePython)) {
+          throw "Production Python was not found at $basePython. Ensure the GitHub Actions runner account can access this path."
+        }
+        $baseVersion = (& $basePython -c "import sys; print('.'.join(map(str, sys.version_info[:3])))").Trim()
+        if ($baseVersion -ne "3.10.11") {
+          throw "Production Python at $basePython is version $baseVersion; expected 3.10.11."
+        }
         $venvPath = Join-Path $env:GITHUB_WORKSPACE "venv"
         $venvPython = Join-Path $venvPath "Scripts\python.exe"
 
         if (Test-Path -LiteralPath $venvPython) {
-          $venvVersion = (& $venvPython -c "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')").Trim()
-          if ($venvVersion -ne "3.10") {
-            throw "Existing production virtual environment uses Python $venvVersion; expected Python 3.10."
+          $venvVersion = (& $venvPython -c "import sys; print('.'.join(map(str, sys.version_info[:3])))").Trim()
+          if ($venvVersion -ne "3.10.11") {
+            throw "Existing production virtual environment uses Python $venvVersion; expected Python 3.10.11."
           }
         } else {
-          python -m venv $venvPath
+          & $basePython -m venv $venvPath
           if ($LASTEXITCODE -ne 0) {
             throw "Failed to create the production virtual environment."
           }
