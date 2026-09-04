@@ -1,9 +1,10 @@
 import asyncio
 import logging
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Awaitable, Callable
 
+import discord
 
 logger = logging.getLogger(__name__)
 
@@ -110,12 +111,9 @@ class PlaybackQueue:
             self._stopping = False
 
 
-async def play_voice_file(voice_client: object, path: Path) -> None:
+async def play_voice_file(voice_client: discord.VoiceClient, path: Path) -> None:
     """Play a WAV file and await Discord's completion callback."""
-    import discord
-
-    is_connected = getattr(voice_client, "is_connected", None)
-    if callable(is_connected) and not is_connected():
+    if not voice_client.is_connected():
         raise RuntimeError("Voice client is not connected.")
 
     loop = asyncio.get_running_loop()

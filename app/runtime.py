@@ -1,5 +1,7 @@
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
-from typing import Any, Awaitable, Callable
+
+import discord
 
 from .playback import PlaybackItem, PlaybackQueue
 
@@ -7,7 +9,7 @@ from .playback import PlaybackItem, PlaybackQueue
 @dataclass
 class GuildState:
     guild_id: int
-    voice_client: Any
+    voice_client: discord.VoiceClient
     text_channel_id: int
     playback: PlaybackQueue
 
@@ -28,7 +30,7 @@ class GuildRuntimeManager:
     async def configure(
         self,
         guild_id: int,
-        voice_client: Any,
+        voice_client: discord.VoiceClient,
         text_channel_id: int,
     ) -> GuildState:
         normalized_id = int(guild_id)
@@ -56,28 +58,26 @@ class GuildRuntimeManager:
             raise KeyError(f"Guild {guild_id} is not configured.")
         await state.playback.enqueue(item)
 
-    async def disconnect(self, guild_id: int, voice_client: Any = None) -> None:
+    async def disconnect(
+        self,
+        guild_id: int,
+        voice_client: discord.VoiceClient | None = None,
+    ) -> None:
         state = self._states.pop(int(guild_id), None)
-        target = voice_client if voice_client is not None else (
-            state.voice_client if state is not None else None
+        target = (
+            voice_client
+            if voice_client is not None
+            else (state.voice_client if state is not None else None)
         )
         if target is None:
             return
 
-        is_playing = getattr(target, "is_playing", None)
-        if callable(is_playing) and is_playing():
+        if target.is_playing():
             target.stop()
         if state is not None:
             await state.playback.stop()
 
-        disconnect = getattr(target, "disconnect", None)
-        if callable(disconnect):
-            await disconnect(force=True)
-            return
-
-        cleanup = getattr(target, "cleanup", None)
-        if callable(cleanup):
-            cleanup()
+        await target.disconnect(force=True)
 
     async def stop_all(self) -> None:
         for guild_id in list(self._states):

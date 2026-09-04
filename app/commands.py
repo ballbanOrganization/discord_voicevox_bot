@@ -1,9 +1,14 @@
-from typing import Any
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
 
 import discord
 from discord import app_commands
 
 from .playback import PlaybackItem
+
+if TYPE_CHECKING:
+    from .bot import VoiceVoxBot
 
 
 async def yomiage_channel_autocomplete(
@@ -16,49 +21,29 @@ async def yomiage_channel_autocomplete(
     result = [
         app_commands.Choice(name=channel.name, value=str(channel.id))
         for channel in guild.text_channels
-        if not text_channel_name
-        or text_channel_name.lower() in channel.name.lower()
+        if not text_channel_name or text_channel_name.lower() in channel.name.lower()
     ]
     return result[:25]
 
 
-async def speaker_autocomplete(
-    interaction: discord.Interaction,
-    speaker_name: str,
-) -> list[app_commands.Choice[str]]:
-    voicevox = interaction.client.voicevox
-    result = [
-        app_commands.Choice(name=name, value=name)
-        for name in voicevox.speaker_dict
-        if not speaker_name or speaker_name.lower() in name.lower()
-    ]
-    return result[:25]
+def _voice_client(
+    bot: VoiceVoxBot,
+    guild: discord.Guild,
+) -> discord.VoiceClient | None:
+    voice_client = guild.voice_client
+    if isinstance(voice_client, discord.VoiceClient):
+        return voice_client
+    for candidate in bot.voice_clients:
+        if isinstance(candidate, discord.VoiceClient) and candidate.guild is guild:
+            return candidate
+    return None
 
 
-async def style_autocomplete(
-    interaction: discord.Interaction,
-    style_id: int,
-) -> list[app_commands.Choice[int]]:
-    voicevox = interaction.client.voicevox
-    namespace = getattr(interaction, "namespace", None)
-    selected_speaker = getattr(namespace, "speaker_name", "")
-    styles = voicevox.speaker_dict.get(selected_speaker, {})
-    return [
-        app_commands.Choice(name=style_name, value=style)
-        for style_name, style in list(styles.items())[:25]
-    ]
+def _is_connected(voice_client: discord.VoiceClient) -> bool:
+    return voice_client.is_connected()
 
 
-def _voice_client(bot: Any, guild: discord.Guild) -> Any:
-    return guild.voice_client or discord.utils.get(bot.voice_clients, guild=guild)
-
-
-def _is_connected(voice_client: Any) -> bool:
-    check = getattr(voice_client, "is_connected", None)
-    return not callable(check) or bool(check())
-
-
-def _register_join(bot: Any) -> None:
+def _register_join(bot: VoiceVoxBot) -> None:
     @bot.tree.command(
         name="join",
         description="指定した文字チャンネルを読み上げる。",
@@ -79,7 +64,13 @@ def _register_join(bot: Any) -> None:
             )
             return
 
-        text_channel_id = int(yomiage_channel) if yomiage_channel else inter.channel.id
+        if yomiage_channel:
+            text_channel_id = int(yomiage_channel)
+        elif inter.channel is not None:
+            text_channel_id = inter.channel.id
+        else:
+            await inter.response.send_message("文字チャンネルで実行してください。")
+            return
         voice_client = _voice_client(bot, guild)
         if voice_client is not None and not _is_connected(voice_client):
             await bot.runtimes.disconnect(guild.id, voice_client)
@@ -113,7 +104,7 @@ def _register_join(bot: Any) -> None:
         await inter.response.send_message(response_text)
 
 
-def _register_disconnect(bot: Any) -> None:
+def _register_disconnect(bot: VoiceVoxBot) -> None:
     @bot.tree.command(name="disconnect", description="接続を切断します。")
     async def disconnect(inter: discord.Interaction) -> None:
         guild = inter.guild
@@ -129,15 +120,44 @@ def _register_disconnect(bot: Any) -> None:
         await inter.response.send_message("疲れたのだ　( ˘ω˘ )ｽﾔｧ…")
 
 
-def _register_set_voice(bot: Any) -> None:
+def _register_set_voice(bot: VoiceVoxBot) -> None:
+    async def speaker_autocomplete(
+        _interaction: discord.Interaction,
+        current: str,
+    ) -> list[app_commands.Choice[str]]:
+        result = [
+            app_commands.Choice(name=name, value=name)
+            for name in bot.voicevox.speaker_dict
+            if not current or current.lower() in name.lower()
+        ]
+        return result[:25]
+
+    async def style_autocomplete(
+        interaction: discord.Interaction,
+        current: str,
+    ) -> list[app_commands.Choice[int]]:
+        selected_speaker = getattr(interaction.namespace, "speaker_name", "")
+        if not isinstance(selected_speaker, str):
+            return []
+        styles = bot.voicevox.speaker_dict.get(selected_speaker, {})
+        style_items = list(styles.items())
+        if current:
+            style_items = [
+                (style_name, style)
+                for style_name, style in style_items
+                if current in str(style)
+            ]
+        return [
+            app_commands.Choice(name=style_name, value=style)
+            for style_name, style in style_items[:25]
+        ]
+
     @bot.tree.command(
         name="set_voice",
         description="読み上げ音声のキャラクターを変更する。",
     )
-    @app_commands.autocomplete(
-        speaker_name=speaker_autocomplete,
-        style_id=style_autocomplete,
-    )
+    @app_commands.autocomplete(style_id=style_autocomplete)
+    @app_commands.autocomplete(speaker_name=speaker_autocomplete)
     async def set_voice(
         inter: discord.Interaction,
         speaker_name: str,
@@ -155,7 +175,7 @@ def _register_set_voice(bot: Any) -> None:
         await inter.response.send_message(f"音声を**`{name}`**に設定しました。")
 
 
-def _register_set_entry_audio(bot: Any) -> None:
+def _register_set_entry_audio(bot: VoiceVoxBot) -> None:
     @bot.tree.command(
         name="set_entry_audio",
         description="入場時の読み上げ音声を指定、空でリセット。",
@@ -172,14 +192,12 @@ def _register_set_entry_audio(bot: Any) -> None:
         user.entry_audio = text
         bot.user_data.save_user(user)
         if text:
-            await inter.response.send_message(
-                f"入場音声を**`{text}`**に設定しました。"
-            )
+            await inter.response.send_message(f"入場音声を**`{text}`**に設定しました。")
         else:
             await inter.response.send_message("入場音声をリセットしました。")
 
 
-def _register_set_exit_audio(bot: Any) -> None:
+def _register_set_exit_audio(bot: VoiceVoxBot) -> None:
     @bot.tree.command(
         name="set_exit_audio",
         description="退場時の読み上げ音声を指定、空でリセット。",
@@ -196,14 +214,12 @@ def _register_set_exit_audio(bot: Any) -> None:
         user.exit_audio = text
         bot.user_data.save_user(user)
         if text:
-            await inter.response.send_message(
-                f"退場音声を**`{text}`**に設定しました。"
-            )
+            await inter.response.send_message(f"退場音声を**`{text}`**に設定しました。")
         else:
             await inter.response.send_message("退場音声をリセットしました。")
 
 
-def register_commands(bot: Any) -> None:
+def register_commands(bot: VoiceVoxBot) -> None:
     _register_join(bot)
     _register_disconnect(bot)
     _register_set_voice(bot)

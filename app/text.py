@@ -1,7 +1,6 @@
 import re
 from collections import defaultdict
-from typing import Iterable
-
+from collections.abc import Iterable
 
 _URL_PATTERN = re.compile(
     r"(?:(?:https?|ftp)://|www\.)[^\s]+"

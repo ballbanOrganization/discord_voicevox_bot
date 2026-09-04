@@ -1,12 +1,13 @@
 from typing import Any
 
+import discord
+
 from .playback import PlaybackItem
 from .text import attachment_announcements, normalize_text
 
 
-def _is_connected(voice_client: Any) -> bool:
-    check = getattr(voice_client, "is_connected", None)
-    return not callable(check) or bool(check())
+def _is_connected(voice_client: discord.VoiceClient) -> bool:
+    return voice_client.is_connected()
 
 
 async def handle_message(bot: Any, message: Any) -> None:
