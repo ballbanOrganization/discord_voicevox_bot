@@ -2,6 +2,10 @@ from typing import Any
 
 import discord
 
+from .message_status import (
+    PLAYING_REACTION_MIN_LENGTH,
+    MessagePlaybackStatus,
+)
 from .playback import PlaybackItem
 from .text import attachment_announcements, normalize_text
 
@@ -24,19 +28,32 @@ async def handle_message(bot: Any, message: Any) -> None:
     if message.channel.id != state.text_channel_id:
         return
 
+    texts: list[str] = []
     if message.content:
         normalized = normalize_text(message.content)
         if normalized is None:
             return
-        await bot.runtimes.enqueue(
-            message.guild.id,
-            PlaybackItem(normalized, message.author.id),
-        )
+        texts.append(normalized)
 
-    for announcement in attachment_announcements(message.attachments):
+    texts.extend(attachment_announcements(message.attachments))
+    if not texts:
+        return
+
+    for text in texts:
+        status = (
+            MessagePlaybackStatus(
+                message,
+                bot.user,
+                show_playing_reaction=(
+                    len(text) > PLAYING_REACTION_MIN_LENGTH
+                ),
+            )
+            if bot.user is not None
+            else None
+        )
         await bot.runtimes.enqueue(
             message.guild.id,
-            PlaybackItem(announcement, message.author.id),
+            PlaybackItem(text, message.author.id, status=status),
         )
 
 

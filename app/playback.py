@@ -1,12 +1,24 @@
 import asyncio
 import logging
 from collections.abc import Awaitable, Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Protocol
 
 import discord
 
 logger = logging.getLogger(__name__)
+
+
+class PlaybackStatus(Protocol):
+    async def mark_started(self) -> None:
+        ...
+
+    async def mark_completed(self) -> None:
+        ...
+
+    async def mark_failed(self) -> None:
+        ...
 
 
 @dataclass(frozen=True)
@@ -14,6 +26,11 @@ class PlaybackItem:
     text: str
     user_id: int
     audio_path: Path | None = None
+    status: PlaybackStatus | None = field(
+        default=None,
+        compare=False,
+        repr=False,
+    )
 
 
 class PlaybackQueue:
@@ -33,6 +50,7 @@ class PlaybackQueue:
         self._synthesis_worker: asyncio.Task[None] | None = None
         self._playback_worker: asyncio.Task[None] | None = None
         self._lifecycle_lock = asyncio.Lock()
+        self._status_tasks: set[asyncio.Task[None]] = set()
         self._stopping = False
 
     @property
@@ -66,6 +84,35 @@ class PlaybackQueue:
     @staticmethod
     async def _identity(item: PlaybackItem) -> PlaybackItem:
         return item
+
+    def _schedule_status(
+        self,
+        status: PlaybackStatus | None,
+        method_name: str,
+    ) -> None:
+        if status is None:
+            return
+        task = asyncio.create_task(
+            self._notify_status(
+                status,
+                method_name,
+            ),
+        )
+        self._status_tasks.add(task)
+        task.add_done_callback(self._status_tasks.discard)
+
+    @staticmethod
+    async def _notify_status(
+        status: PlaybackStatus,
+        method_name: str,
+    ) -> None:
+        try:
+            await getattr(status, method_name)()
+        except discord.HTTPException:
+            logger.warning(
+                "Updating playback status failed.",
+                exc_info=True,
+            )
 
     async def _next_input(self) -> PlaybackItem | None:
         if self._idle_timeout is None:
@@ -118,9 +165,11 @@ class PlaybackQueue:
                 try:
                     prepared_item = await self._prepare(item)
                 except asyncio.CancelledError:
+                    self._schedule_status(item.status, "mark_failed")
                     raise
                 except Exception:
                     logger.exception("Preparing playback item failed: %s", item.text)
+                    self._schedule_status(item.status, "mark_failed")
                 else:
                     self._audio_queue.put_nowait(prepared_item)
                 finally:
@@ -137,11 +186,16 @@ class PlaybackQueue:
                     return
 
                 try:
+                    self._schedule_status(item.status, "mark_started")
                     await self._player(item)
                 except asyncio.CancelledError:
+                    self._schedule_status(item.status, "mark_failed")
                     raise
                 except Exception:
                     logger.exception("Playback item failed: %s", item.text)
+                    self._schedule_status(item.status, "mark_failed")
+                else:
+                    self._schedule_status(item.status, "mark_completed")
                 finally:
                     self._audio_queue.task_done()
         finally:
@@ -162,14 +216,14 @@ class PlaybackQueue:
             except asyncio.CancelledError:
                 pass
 
-    @staticmethod
-    def _drain(queue: asyncio.Queue[PlaybackItem]) -> None:
+    async def _drain(self, queue: asyncio.Queue[PlaybackItem]) -> None:
         while True:
             try:
-                queue.get_nowait()
+                item = queue.get_nowait()
             except asyncio.QueueEmpty:
                 return
             else:
+                self._schedule_status(item.status, "mark_failed")
                 queue.task_done()
 
     async def stop(self) -> None:
@@ -184,8 +238,8 @@ class PlaybackQueue:
         async with self._lifecycle_lock:
             self._synthesis_worker = None
             self._playback_worker = None
-            self._drain(self.queue)
-            self._drain(self._audio_queue)
+            await self._drain(self.queue)
+            await self._drain(self._audio_queue)
             self._stopping = False
 
 
