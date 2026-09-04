@@ -6,3 +6,4 @@ venv/
 .vscode/
 audio/
 .env
+data/user_data.json
