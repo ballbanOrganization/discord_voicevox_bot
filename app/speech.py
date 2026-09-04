@@ -32,7 +32,7 @@ class SpeechService:
             speaker_id = self.voicevox.get_random_speaker_id()
         speaker_name = self.voicevox.get_speaker_name(speaker_id)
         path = self.cache.path_for(text, speaker_name)
-        if path.is_file():
+        if self.cache.is_fresh(path):
             return path
 
         path_lock = self._locks.get(path)
@@ -42,7 +42,7 @@ class SpeechService:
         path_lock.users += 1
         try:
             async with path_lock.lock:
-                if not path.is_file():
+                if not self.cache.is_fresh(path):
                     content = await self.voicevox.text_to_sound(text, speaker_id)
                     await asyncio.to_thread(self.cache.write, path, content)
         finally:

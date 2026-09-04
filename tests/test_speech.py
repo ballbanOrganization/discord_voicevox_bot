@@ -1,4 +1,7 @@
 import asyncio
+import os
+import time
+from datetime import timedelta
 from types import SimpleNamespace
 
 from app.audio_cache import AudioCache
@@ -76,5 +79,39 @@ def test_all_random_selects_a_speaker_for_each_request(tmp_path):
         assert first_path != second_path
         assert random_calls == [3, 107]
         assert synthesis_calls == [("same", 3), ("same", 107)]
+
+    asyncio.run(scenario())
+
+
+def test_speech_service_regenerates_expired_cache(tmp_path):
+    async def scenario():
+        synthesis_calls = []
+
+        class VoiceVox:
+            def get_speaker_name(self, speaker_id):
+                return f"speaker {speaker_id}"
+
+            async def text_to_sound(self, text, speaker):
+                synthesis_calls.append((text, speaker))
+                return b"RIFF"
+
+        class Users:
+            def get_user(self, user_id):
+                return SimpleNamespace(sound=3)
+
+        service = SpeechService(
+            VoiceVox(),
+            Users(),
+            AudioCache(tmp_path / "audio"),
+        )
+
+        path = await service.audio_path("same", 1)
+        expired_at = time.time() - timedelta(days=31).total_seconds()
+        os.utime(path, (expired_at, expired_at))
+
+        refreshed_path = await service.audio_path("same", 1)
+
+        assert refreshed_path == path
+        assert synthesis_calls == [("same", 3), ("same", 3)]
 
     asyncio.run(scenario())

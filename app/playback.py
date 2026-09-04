@@ -9,6 +9,8 @@ import discord
 
 logger = logging.getLogger(__name__)
 
+DEFAULT_QUEUE_MAX_SIZE = 20
+
 
 class PlaybackStatus(Protocol):
     async def mark_started(self) -> None:
@@ -41,9 +43,16 @@ class PlaybackQueue:
         player: Callable[[PlaybackItem], Awaitable[None]],
         idle_timeout: float | None = 300.0,
         prepare: Callable[[PlaybackItem], Awaitable[PlaybackItem]] | None = None,
+        max_queue_size: int = DEFAULT_QUEUE_MAX_SIZE,
     ):
-        self.queue: asyncio.Queue[PlaybackItem] = asyncio.Queue()
-        self._audio_queue: asyncio.Queue[PlaybackItem] = asyncio.Queue()
+        if max_queue_size < 1:
+            raise ValueError("max_queue_size must be positive.")
+        self.queue: asyncio.Queue[PlaybackItem] = asyncio.Queue(
+            maxsize=max_queue_size,
+        )
+        self._audio_queue: asyncio.Queue[PlaybackItem] = asyncio.Queue(
+            maxsize=max_queue_size,
+        )
         self._player = player
         self._prepare = prepare or self._identity
         self._idle_timeout = idle_timeout
@@ -64,12 +73,21 @@ class PlaybackQueue:
     def pending_count(self) -> int:
         return self.queue.qsize() + self._audio_queue.qsize()
 
-    async def enqueue(self, item: PlaybackItem) -> None:
+    async def enqueue(self, item: PlaybackItem) -> bool:
         async with self._lifecycle_lock:
             if self._stopping:
                 raise RuntimeError("Playback queue is stopping.")
             self._ensure_worker()
-            self.queue.put_nowait(item)
+            try:
+                self.queue.put_nowait(item)
+            except asyncio.QueueFull:
+                logger.warning(
+                    "Playback queue is full; dropping item: %s",
+                    item.text,
+                )
+                self._schedule_status(item.status, "mark_failed")
+                return False
+            return True
 
     async def wait_until_empty(self) -> None:
         await self.queue.join()
@@ -164,14 +182,13 @@ class PlaybackQueue:
 
                 try:
                     prepared_item = await self._prepare(item)
+                    await self._audio_queue.put(prepared_item)
                 except asyncio.CancelledError:
                     self._schedule_status(item.status, "mark_failed")
                     raise
                 except Exception:
                     logger.exception("Preparing playback item failed: %s", item.text)
                     self._schedule_status(item.status, "mark_failed")
-                else:
-                    self._audio_queue.put_nowait(prepared_item)
                 finally:
                     self.queue.task_done()
         finally:

@@ -24,6 +24,41 @@ def test_playback_queue_preserves_fifo_order_and_stops():
     asyncio.run(scenario())
 
 
+def test_playback_queue_rejects_items_after_reaching_capacity():
+    async def scenario():
+        preparation_started = asyncio.Event()
+        release_preparation = asyncio.Event()
+
+        async def prepare(item):
+            if item.text == "first":
+                preparation_started.set()
+                await release_preparation.wait()
+            return item
+
+        async def player(_item):
+            await asyncio.sleep(0)
+
+        queue = PlaybackQueue(
+            player,
+            idle_timeout=None,
+            prepare=prepare,
+        )
+        assert await queue.enqueue(PlaybackItem("first", 1))
+        await asyncio.wait_for(preparation_started.wait(), timeout=1)
+
+        for index in range(20):
+            assert await queue.enqueue(PlaybackItem(f"queued-{index}", 1))
+        assert not await queue.enqueue(PlaybackItem("rejected", 1))
+        assert queue.queue.maxsize == 20
+        assert queue._audio_queue.maxsize == 20
+
+        release_preparation.set()
+        await asyncio.wait_for(queue.wait_until_empty(), timeout=1)
+        await queue.stop()
+
+    asyncio.run(scenario())
+
+
 def test_enqueue_after_idle_worker_exits_starts_a_new_worker():
     async def scenario():
         played = []

@@ -1,14 +1,17 @@
 import hashlib
 import os
 import tempfile
+import time
+from datetime import timedelta
 from pathlib import Path
 
 
 class AudioCache:
-    """Manage the compatible speaker-directory and MD5 WAV cache."""
+    """Manage the compatible speaker-directory and expiring MD5 WAV cache."""
 
     def __init__(self, root: str | os.PathLike[str] = "audio"):
         self.root = Path(root)
+        self.max_age = timedelta(days=30)
 
     @staticmethod
     def cache_key(text: str) -> str:
@@ -16,6 +19,16 @@ class AudioCache:
 
     def path_for(self, text: str, speaker_name: str) -> Path:
         return self.root / speaker_name / f"{self.cache_key(text)}.wav"
+
+    def is_fresh(self, path: str | os.PathLike[str]) -> bool:
+        path = Path(path)
+        try:
+            stat = path.stat()
+        except FileNotFoundError:
+            return False
+        if not path.is_file():
+            return False
+        return time.time() - stat.st_mtime < self.max_age.total_seconds()
 
     def write(self, path: str | os.PathLike[str], content: bytes) -> None:
         path = Path(path)
