@@ -2,6 +2,7 @@ __pycache__/
 .github/
 .idea/
 .venv/
+venv/
 .vscode/
 audio/
 .env
