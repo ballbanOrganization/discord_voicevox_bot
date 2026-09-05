@@ -49,6 +49,72 @@ def _is_connected(voice_client: discord.VoiceClient) -> bool:
     return voice_client.is_connected()
 
 
+def _parse_text_channel_id(guild: discord.Guild, value: str) -> int | None:
+    try:
+        channel_id = int(value)
+    except (TypeError, ValueError):
+        return None
+    if any(channel.id == channel_id for channel in guild.text_channels):
+        return channel_id
+    return None
+
+
+def _resolve_text_channel_id(
+    interaction: discord.Interaction,
+    guild: discord.Guild,
+    value: str,
+) -> tuple[int | None, str | None]:
+    if value:
+        channel_id = _parse_text_channel_id(guild, value)
+        if channel_id is None:
+            return None, "指定した文字チャンネルが見つからないのだ。"
+        return channel_id, None
+    if interaction.channel is None:
+        return None, "文字チャンネルで実行してください。"
+    return interaction.channel.id, None
+
+
+def _try_normalize_speed_scale(value: object) -> float | None:
+    try:
+        return normalize_speed_scale(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _resolve_voice_selection(
+    bot: VoiceVoxBot,
+    speaker_name: str,
+    style_id: int,
+) -> tuple[int, str] | None:
+    if speaker_name == RANDOM_SPEAKER_NAME:
+        selected_style_id = bot.voicevox.get_random_speaker_id()
+        return (
+            selected_style_id,
+            bot.voicevox.get_speaker_name(selected_style_id),
+        )
+    if speaker_name == ALL_RANDOM_SPEAKER_NAME:
+        return ALL_RANDOM_SPEAKER_ID, ALL_RANDOM_SPEAKER_NAME
+
+    styles = bot.voicevox.speaker_dict.get(speaker_name)
+    if not styles:
+        return None
+    if style_id == 0:
+        style_name, selected_style_id = next(iter(styles.items()))
+        return selected_style_id, f"{style_name} {speaker_name}"
+
+    style_name = next(
+        (
+            name
+            for name, selected_style_id in styles.items()
+            if selected_style_id == style_id
+        ),
+        None,
+    )
+    if style_name is None:
+        return None
+    return style_id, f"{style_name}{speaker_name}"
+
+
 def _register_join(bot: VoiceVoxBot) -> None:
     @bot.tree.command(
         name="join",
@@ -70,12 +136,13 @@ def _register_join(bot: VoiceVoxBot) -> None:
             )
             return
 
-        if yomiage_channel:
-            text_channel_id = int(yomiage_channel)
-        elif inter.channel is not None:
-            text_channel_id = inter.channel.id
-        else:
-            await inter.response.send_message("文字チャンネルで実行してください。")
+        text_channel_id, error_message = _resolve_text_channel_id(
+            inter,
+            guild,
+            yomiage_channel,
+        )
+        if error_message is not None:
+            await inter.response.send_message(error_message)
             return
         voice_client = _voice_client(bot, guild)
         if voice_client is not None and not _is_connected(voice_client):
@@ -83,7 +150,7 @@ def _register_join(bot: VoiceVoxBot) -> None:
             voice_client = None
 
         if voice_client is not None:
-            if voice_client.channel.id != voice_channel.id:
+            if getattr(voice_client.channel, "id", None) != voice_channel.id:
                 await voice_client.move_to(voice_channel)
                 announcement = "チャンネル移動なのだ！"
             else:
@@ -189,27 +256,20 @@ def _register_set_voice(bot: VoiceVoxBot) -> None:
         style_id: int = 0,
         speed_scale: float = DEFAULT_SPEED_SCALE,
     ) -> None:
-        try:
-            speed_scale = normalize_speed_scale(speed_scale)
-        except (TypeError, ValueError):
+        speed_scale = _try_normalize_speed_scale(speed_scale)
+        if speed_scale is None:
             await inter.response.send_message(
                 "speedScaleは0より大きい数値で設定してください。"
             )
             return
 
-        if speaker_name == RANDOM_SPEAKER_NAME:
-            style_id = bot.voicevox.get_random_speaker_id()
-            name = bot.voicevox.get_speaker_name(style_id)
-        elif speaker_name == ALL_RANDOM_SPEAKER_NAME:
-            style_id = ALL_RANDOM_SPEAKER_ID
-            name = ALL_RANDOM_SPEAKER_NAME
-        else:
-            styles = bot.voicevox.speaker_dict[speaker_name]
-            if style_id == 0:
-                style_name, style_id = next(iter(styles.items()))
-                name = f"{style_name} {speaker_name}"
-            else:
-                name = bot.voicevox.get_speaker_name(style_id)
+        selection = _resolve_voice_selection(bot, speaker_name, style_id)
+        if selection is None:
+            await inter.response.send_message(
+                "指定した音声またはスタイルが見つからないのだ。"
+            )
+            return
+        style_id, name = selection
         user = bot.user_data.get_user(inter.user.id)
         user.sound = style_id
         user.speed_scale = speed_scale
