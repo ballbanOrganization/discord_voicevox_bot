@@ -32,13 +32,21 @@ class SpeechService:
         self.cache = cache
         self._locks: dict[Path, _PathLock] = {}
 
-    async def synthesize(self, text: str, user_id: int) -> SpeechResult:
+    async def synthesize(
+        self,
+        text: str,
+        user_id: int,
+        speaker_id: int | None = None,
+        speed_scale: float | None = None,
+    ) -> SpeechResult:
         user = self.users.get_user(user_id)
-        speaker_id = user.sound
+        speaker_id = user.sound if speaker_id is None else speaker_id
         if speaker_id == ALL_RANDOM_SPEAKER_ID:
             speaker_id = self.voicevox.get_random_speaker_id()
         speed_scale = normalize_speed_scale(
             getattr(user, "speed_scale", DEFAULT_SPEED_SCALE)
+            if speed_scale is None
+            else speed_scale
         )
         speaker_name = self.voicevox.get_speaker_name(speaker_id)
         path = self.cache.path_for(text, speaker_name, speed_scale)

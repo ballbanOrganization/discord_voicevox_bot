@@ -44,6 +44,41 @@ def test_speech_service_deduplicates_generation_and_releases_locks(tmp_path):
     asyncio.run(scenario())
 
 
+def test_speech_service_uses_explicit_speaker_override(tmp_path):
+    async def scenario():
+        synthesis_calls = []
+
+        class VoiceVox:
+            def get_speaker_name(self, speaker_id):
+                return f"speaker {speaker_id}"
+
+            async def text_to_sound(self, text, speaker, speed_scale=1.0):
+                synthesis_calls.append((text, speaker, speed_scale))
+                return b"RIFF"
+
+        class Users:
+            def get_user(self, user_id):
+                return SimpleNamespace(sound=107)
+
+        service = SpeechService(
+            VoiceVox(),
+            Users(),
+            AudioCache(tmp_path / "audio"),
+        )
+
+        result = await service.synthesize(
+            "joined",
+            1,
+            speaker_id=3,
+            speed_scale=1.2,
+        )
+
+        assert result.speaker_name == "speaker 3"
+        assert synthesis_calls == [("joined", 3, 1.2)]
+
+    asyncio.run(scenario())
+
+
 def test_all_random_selects_a_speaker_for_each_request(tmp_path):
     async def scenario():
         selected_speakers = iter((3, 107))

@@ -34,6 +34,8 @@ class PlaybackItem:
         repr=False,
     )
     speaker_name: str | None = None
+    speaker_id: int | None = None
+    speed_scale: float | None = None
 
 
 class PlaybackQueue:

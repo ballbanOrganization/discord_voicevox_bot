@@ -11,6 +11,7 @@ from .message_status import (
 )
 from .playback import PlaybackItem
 from .text import attachment_announcements, normalize_text
+from .user_repository import DEFAULT_USER_ID
 
 if TYPE_CHECKING:
     from .bot import VoiceVoxBot
@@ -89,6 +90,7 @@ async def handle_voice_state_update(
         return
 
     user = bot.user_data.get_user(member.id)
+    default_user = bot.user_data.get_user(DEFAULT_USER_ID)
     entered = (
         before_channel_id != voice_channel_id
         and after_channel_id == voice_channel_id
@@ -106,7 +108,12 @@ async def handle_voice_state_update(
 
     await bot.runtimes.enqueue(
         member.guild.id,
-        PlaybackItem(text, member.id),
+        PlaybackItem(
+            text,
+            member.id,
+            speaker_id=default_user.sound,
+            speed_scale=default_user.speed_scale,
+        ),
     )
 
 

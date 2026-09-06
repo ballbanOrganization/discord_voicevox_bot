@@ -189,6 +189,8 @@ def test_voice_state_uses_entry_audio_for_join_and_exit_audio_for_leave():
                 get_user=lambda user_id: SimpleNamespace(
                     entry_audio="custom entry",
                     exit_audio="custom exit",
+                    sound=3 if user_id == 0 else 107,
+                    speed_scale=1.2 if user_id == 0 else 0.8,
                 )
             ),
         )
@@ -220,6 +222,8 @@ def test_voice_state_uses_entry_audio_for_join_and_exit_audio_for_leave():
             "custom entry",
             "custom exit",
         ]
+        assert [item.speaker_id for _, item in runtime.items] == [3, 3]
+        assert [item.speed_scale for _, item in runtime.items] == [1.2, 1.2]
 
     asyncio.run(scenario())
 
@@ -249,6 +253,8 @@ def test_voice_state_move_into_and_out_of_bot_channel_is_announced():
                 get_user=lambda _user_id: SimpleNamespace(
                     entry_audio="custom entry",
                     exit_audio="custom exit",
+                    sound=3,
+                    speed_scale=1.2,
                 )
             ),
         )

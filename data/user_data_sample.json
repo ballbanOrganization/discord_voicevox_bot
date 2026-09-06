@@ -1,4 +1,11 @@
 {
+    "0": {
+        "user_id": 0,
+        "sound": 3,
+        "entry_audio": "",
+        "exit_audio": "",
+        "speed_scale": 1.2
+    },
     "104857638291746205": {
         "user_id": 104857638291746205,
         "sound": 3,

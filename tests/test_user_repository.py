@@ -56,6 +56,16 @@ def test_speed_scale_round_trip_uses_user_data_schema(tmp_path):
     assert UserRepository(path).get_user(42).speed_scale == 1.25
 
 
+def test_missing_default_user_uses_zero_profile_defaults(tmp_path):
+    repository = UserRepository(tmp_path / "user_data.json")
+
+    default_user = repository.get_user(0)
+
+    assert default_user.user_id == 0
+    assert default_user.sound == 3
+    assert default_user.speed_scale == 1.2
+
+
 def test_save_replaces_existing_file_atomically(tmp_path):
     path = tmp_path / "user_data.json"
     repository = UserRepository(path)

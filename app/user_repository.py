@@ -9,6 +9,9 @@ from typing import TypeGuard, cast
 from .speed import DEFAULT_SPEED_SCALE, normalize_speed_scale
 
 logger = logging.getLogger(__name__)
+DEFAULT_USER_ID = 0
+DEFAULT_USER_SOUND = 3
+DEFAULT_USER_SPEED_SCALE = 1.2
 
 
 def _is_string_keyed_dict(value: object) -> TypeGuard[dict[str, object]]:
@@ -203,7 +206,14 @@ class UserRepository:
         with self._lock:
             user = self.user_data_dic.get(normalized_id)
             if user is None:
-                user = User(normalized_id)
+                if normalized_id == DEFAULT_USER_ID:
+                    user = User(
+                        normalized_id,
+                        sound=DEFAULT_USER_SOUND,
+                        speed_scale=DEFAULT_USER_SPEED_SCALE,
+                    )
+                else:
+                    user = User(normalized_id)
                 self.user_data_dic[normalized_id] = user
             return user
 

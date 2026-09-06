@@ -1,9 +1,12 @@
 import asyncio
+from pathlib import Path
+from types import SimpleNamespace
 
 import discord
 
 from app.bot import VoiceVoxBot, _disconnect_remaining_voice_clients
 from app.config import Settings
+from app.playback import PlaybackItem
 from app.voicevox import VoiceVoxError
 
 
@@ -129,5 +132,36 @@ def test_setup_hook_syncs_commands_when_voicevox_is_unavailable(monkeypatch):
 
         assert len(attempts) == 3
         assert synced == [True]
+
+    asyncio.run(scenario())
+
+
+def test_prepare_item_passes_speaker_override():
+    async def scenario():
+        calls = []
+
+        class Speech:
+            async def synthesize(
+                self,
+                text,
+                user_id,
+                speaker_id=None,
+                speed_scale=None,
+            ):
+                calls.append((text, user_id, speaker_id, speed_scale))
+                return SimpleNamespace(
+                    path=Path("event.wav"),
+                    speaker_name="speaker 3",
+                )
+
+        bot = SimpleNamespace(speech=Speech())
+        item = PlaybackItem("joined", 42, speaker_id=3, speed_scale=1.2)
+
+        prepared = await VoiceVoxBot._prepare_item(bot, object(), item)
+
+        assert calls == [("joined", 42, 3, 1.2)]
+        assert prepared.audio_path == Path("event.wav")
+        assert prepared.speaker_name == "speaker 3"
+        assert prepared.speaker_id == 3
 
     asyncio.run(scenario())

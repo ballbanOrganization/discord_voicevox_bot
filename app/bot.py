@@ -163,7 +163,12 @@ class VoiceVoxBot(discord.Client):
         _state: GuildState,
         item: PlaybackItem,
     ) -> PlaybackItem:
-        result = await self.speech.synthesize(item.text, item.user_id)
+        result = await self.speech.synthesize(
+            item.text,
+            item.user_id,
+            speaker_id=item.speaker_id,
+            speed_scale=item.speed_scale,
+        )
         return replace(
             item,
             audio_path=result.path,
