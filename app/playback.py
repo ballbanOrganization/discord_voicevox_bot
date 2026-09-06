@@ -33,6 +33,7 @@ class PlaybackItem:
         compare=False,
         repr=False,
     )
+    speaker_name: str | None = None
 
 
 class PlaybackQueue:
@@ -303,7 +304,10 @@ async def play_voice_file(voice_client: discord.VoiceClient, path: Path) -> None
     source = discord.FFmpegPCMAudio(source=str(path))
     try:
         voice_client.play(source, after=on_finished)
-    except Exception:
-        source.cleanup()
+        await finished
+    except asyncio.CancelledError:
+        if voice_client.is_playing():
+            voice_client.stop()
         raise
-    await finished
+    finally:
+        source.cleanup()

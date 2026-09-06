@@ -1,4 +1,5 @@
 import hashlib
+import logging
 import os
 import tempfile
 import time
@@ -10,6 +11,8 @@ from .speed import (
     format_speed_scale,
     normalize_speed_scale,
 )
+
+logger = logging.getLogger(__name__)
 
 
 class AudioCache:
@@ -46,6 +49,36 @@ class AudioCache:
         if not path.is_file():
             return False
         return time.time() - stat.st_mtime < self.max_age.total_seconds()
+
+    def cleanup_expired(self, now: float | None = None) -> int:
+        """Delete expired WAV files and return the number removed."""
+        cutoff = (time.time() if now is None else now) - self.max_age.total_seconds()
+        removed = 0
+        if not self.root.is_dir():
+            return removed
+
+        try:
+            paths = self.root.rglob("*.wav")
+            for path in paths:
+                try:
+                    if path.is_file() and path.stat().st_mtime < cutoff:
+                        path.unlink()
+                        removed += 1
+                except FileNotFoundError:
+                    continue
+                except OSError:
+                    logger.warning(
+                        "Could not remove expired audio cache file: %s",
+                        path,
+                        exc_info=True,
+                    )
+        except OSError:
+            logger.warning(
+                "Could not enumerate audio cache files under %s.",
+                self.root,
+                exc_info=True,
+            )
+        return removed
 
     def write(self, path: str | os.PathLike[str], content: bytes) -> None:
         path = Path(path)

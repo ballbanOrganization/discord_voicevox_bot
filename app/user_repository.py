@@ -1,4 +1,5 @@
 import json
+import logging
 import os
 import tempfile
 from pathlib import Path
@@ -6,6 +7,8 @@ from threading import RLock
 from typing import TypeGuard, cast
 
 from .speed import DEFAULT_SPEED_SCALE, normalize_speed_scale
+
+logger = logging.getLogger(__name__)
 
 
 def _is_string_keyed_dict(value: object) -> TypeGuard[dict[str, object]]:
@@ -132,8 +135,10 @@ class UserRepository:
             }
             unexpected_fields = set(value) - expected_fields
             if unexpected_fields:
-                raise TypeError(
-                    f"Unexpected user fields: {sorted(unexpected_fields)!r}."
+                logger.warning(
+                    "Ignoring unknown user fields for %s: %s",
+                    user_id,
+                    sorted(unexpected_fields),
                 )
 
             record_user_id = _read_int(value, "user_id")

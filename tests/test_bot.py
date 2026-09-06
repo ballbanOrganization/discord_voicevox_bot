@@ -4,6 +4,7 @@ import discord
 
 from app.bot import VoiceVoxBot, _disconnect_remaining_voice_clients
 from app.config import Settings
+from app.voicevox import VoiceVoxError
 
 
 def test_disconnect_remaining_voice_clients_only_disconnects_connected_clients():
@@ -90,5 +91,43 @@ def test_bot_close_finishes_resource_cleanup_after_runtime_failure(monkeypatch):
             raise AssertionError("runtime shutdown failure should propagate")
 
         assert events == ["runtime", "voicevox", "discord"]
+
+
+def test_setup_hook_syncs_commands_when_voicevox_is_unavailable(monkeypatch):
+    async def scenario():
+        attempts = []
+        synced = []
+
+        class VoiceVox:
+            async def load_speakers(self):
+                attempts.append(True)
+                raise VoiceVoxError("engine unavailable")
+
+            async def close(self):
+                pass
+
+        async def sync():
+            synced.append(True)
+
+        async def close_client(_self):
+            pass
+
+        monkeypatch.setattr("app.bot.SPEAKER_LOAD_RETRY_DELAY", 0)
+        monkeypatch.setattr(discord.Client, "close", close_client)
+        bot = VoiceVoxBot(
+            Settings(),
+            user_data=object(),
+            voicevox=VoiceVox(),
+            speech=object(),
+        )
+        bot.tree.sync = sync
+
+        try:
+            await bot.setup_hook()
+        finally:
+            await bot.close()
+
+        assert len(attempts) == 3
+        assert synced == [True]
 
     asyncio.run(scenario())

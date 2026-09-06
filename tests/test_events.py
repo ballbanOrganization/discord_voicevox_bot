@@ -1,7 +1,11 @@
 import asyncio
 from types import SimpleNamespace
 
-from app.events import handle_message, handle_voice_state_update
+from app.events import (
+    cleanup_idle_voice_clients,
+    handle_message,
+    handle_voice_state_update,
+)
 from app.message_status import (
     PLAYING_REACTION,
     PLAYING_REACTION_MIN_LENGTH,
@@ -216,5 +220,92 @@ def test_voice_state_uses_entry_audio_for_join_and_exit_audio_for_leave():
             "custom entry",
             "custom exit",
         ]
+
+    asyncio.run(scenario())
+
+
+def test_voice_state_move_into_and_out_of_bot_channel_is_announced():
+    async def scenario():
+        items = []
+        bot_channel = SimpleNamespace(id=20)
+        guild = SimpleNamespace(id=7)
+
+        class Runtime:
+            def get(self, _guild_id):
+                return SimpleNamespace(
+                    voice_client=SimpleNamespace(
+                        channel=bot_channel,
+                        is_connected=lambda: True,
+                    )
+                )
+
+            async def enqueue(self, guild_id, item):
+                items.append((guild_id, item.text))
+
+        bot = SimpleNamespace(
+            user=SimpleNamespace(id=999),
+            runtimes=Runtime(),
+            user_data=SimpleNamespace(
+                get_user=lambda _user_id: SimpleNamespace(
+                    entry_audio="custom entry",
+                    exit_audio="custom exit",
+                )
+            ),
+        )
+        member = SimpleNamespace(id=1, guild=guild, display_name="Member")
+
+        await handle_voice_state_update(
+            bot,
+            member,
+            SimpleNamespace(channel=SimpleNamespace(id=10)),
+            SimpleNamespace(channel=bot_channel),
+        )
+        await handle_voice_state_update(
+            bot,
+            member,
+            SimpleNamespace(channel=bot_channel),
+            SimpleNamespace(channel=SimpleNamespace(id=30)),
+        )
+
+        assert [text for _, text in items] == ["custom entry", "custom exit"]
+
+    asyncio.run(scenario())
+
+
+def test_idle_cleanup_waits_and_ignores_other_bots():
+    async def scenario():
+        disconnected = []
+
+        class Guild:
+            id = 7
+
+            @staticmethod
+            def get_member(user_id):
+                return SimpleNamespace(bot=user_id == 1000)
+
+        guild = Guild()
+        channel = SimpleNamespace(
+            guild=guild,
+            voice_states={999: object(), 1000: object()},
+        )
+        voice_client = SimpleNamespace(channel=channel, guild=guild)
+
+        class Runtime:
+            async def disconnect(self, guild_id, client):
+                disconnected.append((guild_id, client))
+
+        bot = SimpleNamespace(
+            user=SimpleNamespace(id=999),
+            settings=SimpleNamespace(queue_idle_timeout=300.0),
+            voice_clients=[voice_client],
+            runtimes=Runtime(),
+        )
+
+        await cleanup_idle_voice_clients(bot, now=100.0)
+        await cleanup_idle_voice_clients(bot, now=399.0)
+        assert disconnected == []
+
+        await cleanup_idle_voice_clients(bot, now=400.0)
+        assert disconnected == [(7, voice_client)]
 
     asyncio.run(scenario())

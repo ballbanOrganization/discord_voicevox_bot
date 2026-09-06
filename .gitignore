@@ -6,3 +6,5 @@ venv/
 audio/
 .env
 data/user_data.json
+*.log
+.pytest_cache/

@@ -8,6 +8,12 @@ from .user_repository import UserRepository
 from .voicevox import ALL_RANDOM_SPEAKER_ID, VoiceVox
 
 
+@dataclass(frozen=True)
+class SpeechResult:
+    path: Path
+    speaker_name: str
+
+
 @dataclass
 class _PathLock:
     lock: asyncio.Lock
@@ -26,7 +32,7 @@ class SpeechService:
         self.cache = cache
         self._locks: dict[Path, _PathLock] = {}
 
-    async def audio_path(self, text: str, user_id: int) -> Path:
+    async def synthesize(self, text: str, user_id: int) -> SpeechResult:
         user = self.users.get_user(user_id)
         speaker_id = user.sound
         if speaker_id == ALL_RANDOM_SPEAKER_ID:
@@ -37,7 +43,7 @@ class SpeechService:
         speaker_name = self.voicevox.get_speaker_name(speaker_id)
         path = self.cache.path_for(text, speaker_name, speed_scale)
         if self.cache.is_fresh(path):
-            return path
+            return SpeechResult(path, speaker_name)
 
         path_lock = self._locks.get(path)
         if path_lock is None:
@@ -57,4 +63,4 @@ class SpeechService:
             path_lock.users -= 1
             if path_lock.users == 0 and self._locks.get(path) is path_lock:
                 del self._locks[path]
-        return path
+        return SpeechResult(path, speaker_name)

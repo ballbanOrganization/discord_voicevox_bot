@@ -32,12 +32,12 @@ def test_speech_service_deduplicates_generation_and_releases_locks(tmp_path):
             AudioCache(tmp_path / "audio"),
         )
 
-        paths = await asyncio.gather(
-            service.audio_path("same", 1),
-            service.audio_path("same", 2),
+        results = await asyncio.gather(
+            service.synthesize("same", 1),
+            service.synthesize("same", 2),
         )
 
-        assert paths[0] == paths[1]
+        assert results[0].path == results[1].path
         assert calls == [("same", 3)]
         assert service._locks == {}
 
@@ -73,10 +73,12 @@ def test_all_random_selects_a_speaker_for_each_request(tmp_path):
             AudioCache(tmp_path / "audio"),
         )
 
-        first_path = await service.audio_path("same", 1)
-        second_path = await service.audio_path("same", 1)
+        first_result = await service.synthesize("same", 1)
+        second_result = await service.synthesize("same", 1)
 
-        assert first_path != second_path
+        assert first_result.path != second_result.path
+        assert first_result.speaker_name == "speaker 3"
+        assert second_result.speaker_name == "speaker 107"
         assert random_calls == [3, 107]
         assert synthesis_calls == [("same", 3), ("same", 107)]
 
@@ -105,13 +107,14 @@ def test_speech_service_regenerates_expired_cache(tmp_path):
             AudioCache(tmp_path / "audio"),
         )
 
-        path = await service.audio_path("same", 1)
+        result = await service.synthesize("same", 1)
+        path = result.path
         expired_at = time.time() - timedelta(days=31).total_seconds()
         os.utime(path, (expired_at, expired_at))
 
-        refreshed_path = await service.audio_path("same", 1)
+        refreshed_result = await service.synthesize("same", 1)
 
-        assert refreshed_path == path
+        assert refreshed_result.path == path
         assert synthesis_calls == [("same", 3), ("same", 3)]
 
     asyncio.run(scenario())
@@ -139,9 +142,9 @@ def test_speech_service_separates_cache_and_synthesis_by_speed_scale(tmp_path):
             AudioCache(tmp_path / "audio"),
         )
 
-        path = await service.audio_path("same", 1)
+        result = await service.synthesize("same", 1)
 
-        assert path.name == f"{AudioCache.cache_key('same')}-speed-1.25.wav"
+        assert result.path.name == f"{AudioCache.cache_key('same')}-speed-1.25.wav"
         assert synthesis_calls == [("same", 3, 1.25)]
 
     asyncio.run(scenario())

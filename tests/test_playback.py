@@ -1,10 +1,15 @@
 import asyncio
+from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import Mock
 
 from app.playback import (
     DEFAULT_QUEUE_MAX_SIZE,
     PlaybackItem,
     PlaybackQueue,
+    play_voice_file,
 )
+
 from app.runtime import GuildRuntimeManager
 
 
@@ -312,5 +317,34 @@ def test_guild_runtime_stop_all_continues_after_disconnect_failure():
         assert healthy_client.disconnected == [True]
         assert manager.get(123) is None
         assert manager.get(456) is None
+
+    asyncio.run(scenario())
+
+
+def test_play_voice_file_stops_and_cleans_source_when_cancelled(monkeypatch):
+    async def scenario():
+        source = Mock()
+        stop = Mock()
+        monkeypatch.setattr(
+            "app.playback.discord.FFmpegPCMAudio",
+            lambda **_kwargs: source,
+        )
+        voice_client = SimpleNamespace(
+            is_connected=lambda: True,
+            play=lambda _source, after: None,
+            is_playing=lambda: True,
+            stop=stop,
+        )
+        task = asyncio.create_task(play_voice_file(voice_client, Path("sample.wav")))
+        await asyncio.sleep(0)
+        task.cancel()
+
+        try:
+            await task
+        except asyncio.CancelledError:
+            pass
+
+        stop.assert_called_once_with()
+        source.cleanup.assert_called_once_with()
 
     asyncio.run(scenario())

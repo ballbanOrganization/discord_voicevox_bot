@@ -67,3 +67,29 @@ def test_save_replaces_existing_file_atomically(tmp_path):
 
     assert path.is_file()
     assert not list(tmp_path.glob("*.tmp"))
+
+
+def test_unknown_user_fields_are_ignored_and_dropped_on_save(tmp_path):
+    path = tmp_path / "user_data.json"
+    path.write_text(
+        json.dumps(
+            {
+                "42": {
+                    "user_id": 42,
+                    "sound": 3,
+                    "entry_audio": "",
+                    "exit_audio": "",
+                    "speed_scale": 1.0,
+                    "future_field": True,
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    repository = UserRepository(path)
+    repository.save_user_data()
+
+    saved = json.loads(path.read_text(encoding="utf-8"))
+    assert saved["42"]["user_id"] == 42
+    assert "future_field" not in saved["42"]

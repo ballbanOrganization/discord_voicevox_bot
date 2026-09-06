@@ -50,3 +50,18 @@ def test_cache_entry_expires_after_thirty_days(tmp_path):
     os.utime(path, (expired_at, expired_at))
 
     assert not cache.is_fresh(path)
+
+
+def test_cleanup_expired_removes_only_expired_wav_files(tmp_path):
+    cache = AudioCache(tmp_path / "audio")
+    expired_path = cache.path_for("expired", "speaker")
+    fresh_path = cache.path_for("fresh", "speaker")
+    cache.write(expired_path, b"RIFF")
+    cache.write(fresh_path, b"RIFF")
+
+    expired_at = time.time() - timedelta(days=31).total_seconds()
+    os.utime(expired_path, (expired_at, expired_at))
+
+    assert cache.cleanup_expired() == 1
+    assert not expired_path.exists()
+    assert fresh_path.exists()

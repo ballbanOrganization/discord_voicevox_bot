@@ -7,7 +7,7 @@ from discord import app_commands
 
 from .playback import PlaybackItem
 from .speed import DEFAULT_SPEED_SCALE, normalize_speed_scale
-from .voicevox import ALL_RANDOM_SPEAKER_ID
+from .voicevox import ALL_RANDOM_SPEAKER_ID, VoiceVoxError
 
 if TYPE_CHECKING:
     from .bot import VoiceVoxBot
@@ -112,7 +112,25 @@ def _resolve_voice_selection(
     )
     if style_name is None:
         return None
-    return style_id, f"{style_name}{speaker_name}"
+    return style_id, f"{style_name} {speaker_name}"
+
+
+def _register_reload_speakers(bot: VoiceVoxBot) -> None:
+    @bot.tree.command(
+        name="reload_speakers",
+        description="VOICEVOXの音声一覧を再読み込みします。",
+    )
+    async def reload_speakers(inter: discord.Interaction) -> None:
+        try:
+            speakers = await bot.voicevox.load_speakers()
+        except VoiceVoxError:
+            await inter.response.send_message(
+                "VOICEVOXに接続できず、音声一覧を再読み込みできないのだ。"
+            )
+            return
+        await inter.response.send_message(
+            f"VOICEVOXの音声一覧を再読み込みしたのだ（{len(speakers)}件）。"
+        )
 
 
 def _register_join(bot: VoiceVoxBot) -> None:
@@ -230,10 +248,11 @@ def _register_set_voice(bot: VoiceVoxBot) -> None:
         styles = bot.voicevox.speaker_dict.get(selected_speaker, {})
         style_items = list(styles.items())
         if current:
+            query = current.casefold()
             style_items = [
                 (style_name, style)
                 for style_name, style in style_items
-                if current in str(style)
+                if query in style_name.casefold() or current in str(style)
             ]
         return [
             app_commands.Choice(name=style_name, value=style)
@@ -350,6 +369,7 @@ def _register_set_exit_audio(bot: VoiceVoxBot) -> None:
 
 
 def register_commands(bot: VoiceVoxBot) -> None:
+    _register_reload_speakers(bot)
     _register_join(bot)
     _register_disconnect(bot)
     _register_set_voice(bot)

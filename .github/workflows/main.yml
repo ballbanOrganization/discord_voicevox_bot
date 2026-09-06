@@ -25,8 +25,7 @@ jobs:
     - name: Install dependencies
       run: |
         python -m pip install --upgrade pip
-        python -m pip install -r requirements.txt
-        python -m pip install flake8
+        python -m pip install -r requirements-dev.txt
 
     - name: Lint with flake8
       run: |
@@ -44,7 +43,9 @@ jobs:
     needs: validate
     runs-on: self-hosted
     env:
-      PRODUCTION_PYTHON: C:\Users\Administrator\AppData\Local\Programs\Python\Python310\python.exe
+      # Optional repository variable for runners whose service PATH differs.
+      PRODUCTION_PYTHON: ${{ vars.PRODUCTION_PYTHON }}
+
     concurrency:
       group: discord-voicevox-bot-production
       cancel-in-progress: false
@@ -58,21 +59,41 @@ jobs:
       shell: powershell
       run: |
         $ErrorActionPreference = "Stop"
-        $basePython = $env:PRODUCTION_PYTHON
-        if (-not (Test-Path -LiteralPath $basePython)) {
-          throw "Production Python was not found at $basePython. Ensure the GitHub Actions runner account can access this path."
+        $configuredPython = $env:PRODUCTION_PYTHON
+        $basePython = $null
+        if (-not [string]::IsNullOrWhiteSpace($configuredPython)) {
+          if (Test-Path -LiteralPath $configuredPython) {
+            $basePython = (Resolve-Path -LiteralPath $configuredPython).Path
+          } else {
+            $basePython = (Get-Command $configuredPython -ErrorAction SilentlyContinue).Source
+          }
+        }
+        if (-not $basePython) {
+          $pyLauncher = (Get-Command py -ErrorAction SilentlyContinue).Source
+          if ($pyLauncher) {
+            $candidate = (& $pyLauncher -3.10 -c "import sys; print(sys.executable)" 2>$null).Trim()
+            if ($LASTEXITCODE -eq 0 -and $candidate) {
+              $basePython = $candidate
+            }
+          }
+        }
+        if (-not $basePython) {
+          $basePython = (Get-Command python -ErrorAction SilentlyContinue).Source
+        }
+        if (-not $basePython -or -not (Test-Path -LiteralPath $basePython)) {
+          throw "Python 3.10 was not found. Set the PRODUCTION_PYTHON repository variable or install Python 3.10 with the py launcher."
         }
         $baseVersion = (& $basePython -c "import sys; print('.'.join(map(str, sys.version_info[:3])))").Trim()
-        if ($baseVersion -ne "3.10.11") {
-          throw "Production Python at $basePython is version $baseVersion; expected 3.10.11."
+        if ($baseVersion -notmatch '^3\.10\.') {
+          throw "Production Python at $basePython is version $baseVersion; expected Python 3.10.x."
         }
         $venvPath = Join-Path $env:GITHUB_WORKSPACE "venv"
         $venvPython = Join-Path $venvPath "Scripts\python.exe"
 
         if (Test-Path -LiteralPath $venvPython) {
           $venvVersion = (& $venvPython -c "import sys; print('.'.join(map(str, sys.version_info[:3])))").Trim()
-          if ($venvVersion -ne "3.10.11") {
-            throw "Existing production virtual environment uses Python $venvVersion; expected Python 3.10.11."
+          if ($venvVersion -notmatch '^3\.10\.') {
+            throw "Existing production virtual environment uses Python $venvVersion; expected Python 3.10.x."
           }
         } else {
           & $basePython -m venv $venvPath
@@ -106,12 +127,12 @@ jobs:
         $workspace = $env:GITHUB_WORKSPACE
         $venvPython = Join-Path $workspace "venv\Scripts\python.exe"
         $launcher = Join-Path (Split-Path $workspace -Parent) "discord_voicevox_bot.bat"
-        $logPath = Join-Path $workspace "discord_voicevox_bot_%date:~0,4%%date:~5,2%%date:~8,2%.log"
-
         @"
         @echo off
+        setlocal
         cd /d $workspace
-        "$venvPython" "$workspace\main.py" >> "$logPath" 2>&1
+        for /f %%I in ('powershell -NoProfile -Command "Get-Date -Format yyyyMMdd"') do set "logDate=%%I"
+        "$venvPython" "$workspace\main.py" >> "$workspace\discord_voicevox_bot_%logDate%.log" 2>&1
         exit /b %ERRORLEVEL%
         "@ | Set-Content -LiteralPath $launcher -Encoding ascii
 

@@ -72,6 +72,29 @@ def test_set_voice_rejects_unknown_speaker_and_style():
     asyncio.run(scenario())
 
 
+def test_style_autocomplete_matches_style_name():
+    async def scenario():
+        bot = _Bot()
+        bot.voicevox.speaker_dict = {
+            "ずんだもん": {"ノーマル": 3, "あまあま": 4},
+        }
+        register_commands(bot)
+        callback = bot.tree.commands[
+            "set_voice"
+        ].__discord_app_commands_param_autocomplete__["style_id"]
+        interaction = SimpleNamespace(
+            namespace=SimpleNamespace(speaker_name="ずんだもん")
+        )
+
+        results = await callback(interaction, "あまあ")
+
+        assert [(choice.name, choice.value) for choice in results] == [
+            ("あまあま", 4),
+        ]
+
+    asyncio.run(scenario())
+
+
 def test_join_rejects_nonexistent_text_channel_values():
     async def scenario():
         interaction = SimpleNamespace(
