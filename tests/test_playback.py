@@ -1,6 +1,10 @@
 import asyncio
 
-from app.playback import PlaybackItem, PlaybackQueue
+from app.playback import (
+    DEFAULT_QUEUE_MAX_SIZE,
+    PlaybackItem,
+    PlaybackQueue,
+)
 from app.runtime import GuildRuntimeManager
 
 
@@ -46,14 +50,16 @@ def test_playback_queue_rejects_items_after_reaching_capacity():
         assert await queue.enqueue(PlaybackItem("first", 1))
         await asyncio.wait_for(preparation_started.wait(), timeout=1)
 
-        for index in range(20):
+        for index in range(DEFAULT_QUEUE_MAX_SIZE - 1):
             assert await queue.enqueue(PlaybackItem(f"queued-{index}", 1))
+        assert queue.pending_count == DEFAULT_QUEUE_MAX_SIZE
         assert not await queue.enqueue(PlaybackItem("rejected", 1))
-        assert queue.queue.maxsize == 20
-        assert queue._audio_queue.maxsize == 20
+        assert queue.queue.maxsize == DEFAULT_QUEUE_MAX_SIZE
+        assert queue._audio_queue.maxsize == DEFAULT_QUEUE_MAX_SIZE
 
         release_preparation.set()
         await asyncio.wait_for(queue.wait_until_empty(), timeout=1)
+        assert queue.pending_count == 0
         await queue.stop()
 
     asyncio.run(scenario())
@@ -209,5 +215,102 @@ def test_guild_runtime_disconnects_stale_voice_client():
         await manager.disconnect(123)
 
         assert disconnected == [True]
+
+
+def test_guild_runtime_replaces_previous_voice_client():
+    async def scenario():
+        class VoiceClient:
+            channel = object()
+
+            def __init__(self):
+                self.disconnected = []
+
+            def is_connected(self):
+                return True
+
+            def is_playing(self):
+                return False
+
+            async def disconnect(self, force=False):
+                self.disconnected.append(force)
+
+        manager = GuildRuntimeManager(lambda state, item: asyncio.sleep(0))
+        old_client = VoiceClient()
+        new_client = VoiceClient()
+
+        await manager.configure(123, old_client, 456)
+        state = await manager.configure(123, new_client, 789)
+
+        assert old_client.disconnected == [True]
+        assert state.voice_client is new_client
+        assert state.text_channel_id == 789
+
+        await manager.disconnect(123)
+
+    asyncio.run(scenario())
+
+
+def test_guild_runtime_disconnect_keeps_active_state_for_different_client():
+    async def scenario():
+        class VoiceClient:
+            channel = object()
+
+            def __init__(self):
+                self.disconnected = []
+
+            def is_playing(self):
+                return False
+
+            def stop(self):
+                raise AssertionError("inactive client should not be stopped")
+
+            async def disconnect(self, force=False):
+                self.disconnected.append(force)
+
+        manager = GuildRuntimeManager(lambda state, item: asyncio.sleep(0))
+        active_client = VoiceClient()
+        stale_client = VoiceClient()
+        state = await manager.configure(123, active_client, 456)
+
+        await manager.disconnect(123, stale_client)
+
+        assert manager.get(123) is state
+        assert active_client.disconnected == []
+        assert stale_client.disconnected == [True]
+
+        await manager.disconnect(123)
+        assert manager.get(123) is None
+
+    asyncio.run(scenario())
+
+
+def test_guild_runtime_stop_all_continues_after_disconnect_failure():
+    async def scenario():
+        class VoiceClient:
+            channel = object()
+
+            def __init__(self, should_fail):
+                self.should_fail = should_fail
+                self.disconnected = []
+
+            def is_playing(self):
+                return False
+
+            async def disconnect(self, force=False):
+                if self.should_fail:
+                    raise RuntimeError("disconnect failed")
+                self.disconnected.append(force)
+
+        manager = GuildRuntimeManager(lambda state, item: asyncio.sleep(0))
+        failed_client = VoiceClient(True)
+        healthy_client = VoiceClient(False)
+        await manager.configure(123, failed_client, 456)
+        await manager.configure(456, healthy_client, 789)
+
+        await manager.stop_all()
+
+        assert healthy_client.disconnected == [True]
+        assert manager.get(123) is None
+        assert manager.get(456) is None
 
     asyncio.run(scenario())

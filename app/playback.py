@@ -53,6 +53,8 @@ class PlaybackQueue:
         self._audio_queue: asyncio.Queue[PlaybackItem] = asyncio.Queue(
             maxsize=max_queue_size,
         )
+        self._max_queue_size = max_queue_size
+        self._pending_count = 0
         self._player = player
         self._prepare = prepare or self._identity
         self._idle_timeout = idle_timeout
@@ -71,12 +73,20 @@ class PlaybackQueue:
 
     @property
     def pending_count(self) -> int:
-        return self.queue.qsize() + self._audio_queue.qsize()
+        """Return queued, preparing, and currently playing item count."""
+        return self._pending_count
 
     async def enqueue(self, item: PlaybackItem) -> bool:
         async with self._lifecycle_lock:
             if self._stopping:
                 raise RuntimeError("Playback queue is stopping.")
+            if self._pending_count >= self._max_queue_size:
+                logger.warning(
+                    "Playback queue is full; dropping item: %s",
+                    item.text,
+                )
+                self._schedule_status(item.status, "mark_failed")
+                return False
             self._ensure_worker()
             try:
                 self.queue.put_nowait(item)
@@ -87,6 +97,7 @@ class PlaybackQueue:
                 )
                 self._schedule_status(item.status, "mark_failed")
                 return False
+            self._pending_count += 1
             return True
 
     async def wait_until_empty(self) -> None:
@@ -118,6 +129,12 @@ class PlaybackQueue:
         )
         self._status_tasks.add(task)
         task.add_done_callback(self._status_tasks.discard)
+
+    def _release_pending(self) -> None:
+        if self._pending_count == 0:
+            logger.error("Playback queue pending count underflow.")
+            return
+        self._pending_count -= 1
 
     @staticmethod
     async def _notify_status(
@@ -185,10 +202,12 @@ class PlaybackQueue:
                     await self._audio_queue.put(prepared_item)
                 except asyncio.CancelledError:
                     self._schedule_status(item.status, "mark_failed")
+                    self._release_pending()
                     raise
                 except Exception:
                     logger.exception("Preparing playback item failed: %s", item.text)
                     self._schedule_status(item.status, "mark_failed")
+                    self._release_pending()
                 finally:
                     self.queue.task_done()
         finally:
@@ -215,6 +234,7 @@ class PlaybackQueue:
                     self._schedule_status(item.status, "mark_completed")
                 finally:
                     self._audio_queue.task_done()
+                    self._release_pending()
         finally:
             if self._playback_worker is asyncio.current_task():
                 self._playback_worker = None
@@ -242,6 +262,7 @@ class PlaybackQueue:
             else:
                 self._schedule_status(item.status, "mark_failed")
                 queue.task_done()
+                self._release_pending()
 
     async def stop(self) -> None:
         async with self._lifecycle_lock:

@@ -22,6 +22,17 @@ from .voicevox import VoiceVox
 logger = logging.getLogger(__name__)
 
 
+async def _disconnect_remaining_voice_clients(
+    voice_clients: list[discord.VoiceClient],
+) -> None:
+    for voice_client in list(voice_clients):
+        try:
+            if voice_client.is_connected():
+                await voice_client.disconnect(force=True)
+        except Exception:
+            logger.exception("Failed to disconnect voice client during shutdown.")
+
+
 class VoiceVoxBot(discord.Client):
     def __init__(
         self,
@@ -104,9 +115,17 @@ class VoiceVoxBot(discord.Client):
                 await self._cleanup_task
             except asyncio.CancelledError:
                 pass
-        await self.runtimes.stop_all()
-        await self.voicevox.close()
-        await super().close()
+
+        try:
+            await self.runtimes.stop_all()
+        finally:
+            try:
+                await _disconnect_remaining_voice_clients(self.voice_clients)
+            finally:
+                try:
+                    await self.voicevox.close()
+                finally:
+                    await super().close()
 
 
 def create_bot(settings: Settings | None = None) -> VoiceVoxBot:

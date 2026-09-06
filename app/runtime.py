@@ -1,9 +1,12 @@
+import logging
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 
 import discord
 
 from .playback import PlaybackItem, PlaybackQueue
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -41,6 +44,9 @@ class GuildRuntimeManager:
     ) -> GuildState:
         normalized_id = int(guild_id)
         state = self._states.get(normalized_id)
+        if state is not None and state.voice_client is not voice_client:
+            await self.disconnect(normalized_id, state.voice_client)
+            state = None
         if state is None:
             state = GuildState(
                 guild_id=normalized_id,
@@ -66,7 +72,6 @@ class GuildRuntimeManager:
                 )
             self._states[normalized_id] = state
         else:
-            state.voice_client = voice_client
             state.text_channel_id = int(text_channel_id)
         return state
 
@@ -81,7 +86,8 @@ class GuildRuntimeManager:
         guild_id: int,
         voice_client: discord.VoiceClient | None = None,
     ) -> None:
-        state = self._states.pop(int(guild_id), None)
+        normalized_id = int(guild_id)
+        state = self._states.get(normalized_id)
         target = (
             voice_client
             if voice_client is not None
@@ -92,11 +98,18 @@ class GuildRuntimeManager:
 
         if target.is_playing():
             target.stop()
-        if state is not None:
+        if state is not None and target is state.voice_client:
+            self._states.pop(normalized_id, None)
             await state.playback.stop()
 
         await target.disconnect(force=True)
 
     async def stop_all(self) -> None:
         for guild_id in list(self._states):
-            await self.disconnect(guild_id)
+            try:
+                await self.disconnect(guild_id)
+            except Exception:
+                logger.exception(
+                    "Failed to disconnect guild runtime during shutdown: %s",
+                    guild_id,
+                )

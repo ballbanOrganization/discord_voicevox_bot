@@ -1,3 +1,5 @@
+import asyncio
+import aiohttp
 import pytest
 
 from app.voicevox import VoiceVox, VoiceVoxError
@@ -71,6 +73,76 @@ def test_text_to_sound_applies_speed_scale_to_audio_query():
             "speaker": 3,
         }
 
-    import asyncio
+    asyncio.run(scenario())
+
+
+def test_voicevox_wraps_transport_errors():
+    async def scenario():
+        class Session:
+            closed = False
+
+            def request(self, *_args, **_kwargs):
+                raise aiohttp.ClientError("engine unavailable")
+
+        voicevox = VoiceVox(session=Session())
+
+        with pytest.raises(VoiceVoxError, match="request failed"):
+            await voicevox.get_query("hello", 3)
+
+    asyncio.run(scenario())
+
+
+def test_voicevox_rejects_invalid_json_response():
+    async def scenario():
+        class Response:
+            status = 200
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *_args):
+                return None
+
+            async def json(self):
+                raise ValueError("invalid response")
+
+        class Session:
+            closed = False
+
+            def request(self, *_args, **_kwargs):
+                return Response()
+
+        voicevox = VoiceVox(session=Session())
+
+        with pytest.raises(VoiceVoxError, match="invalid JSON"):
+            await voicevox.get_query("hello", 3)
+
+    asyncio.run(scenario())
+
+
+def test_voicevox_includes_http_failure_details():
+    async def scenario():
+        class Response:
+            status = 503
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *_args):
+                return None
+
+            async def text(self):
+                return "engine unavailable"
+
+        class Session:
+            closed = False
+
+            def request(self, *_args, **_kwargs):
+                return Response()
+
+        voicevox = VoiceVox(session=Session())
+
+        with pytest.raises(VoiceVoxError, match="HTTP 503.*engine unavailable"):
+            await voicevox.get_query("hello", 3)
 
     asyncio.run(scenario())
